@@ -1,8 +1,8 @@
 # hd-voice-service
 
 自建 Linux 流式语音服务器（sherpa-onnx）：**降噪 → VAD → 流式 ASR → 流式 TTS**，
-对应用服务器暴露 REST + WebSocket。设计与实测依据见
-[《自建 Linux 流式语音服务器.md》](./自建%20Linux%20流式语音服务器.md)，实施计划见 [plan.md](./plan.md)。
+对应用服务器暴露 REST + WebSocket。设计与实测依据见《自建 Linux 流式语音服务器.md》（已移至
+`~/Documents/ai/luckfox-audio/`，本仓库不再随附），实施计划与实施记录见 [plan.md](./plan.md)。
 
 v1（精简核心）：GTCRN 流式降噪（可开关）+ Silero VAD + streaming zipformer zh int8 + 流式 TTS。
 SenseVoice 精修 / 标点 / ITN 延后（WS 参数显式拒绝 `unsupported_option`）。CPU 推理，Docker 部署。
