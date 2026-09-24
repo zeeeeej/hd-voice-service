@@ -1,0 +1,8 @@
+# 开发用 override（docker compose 自动加载）：挂载源码，改代码只需 restart 无需重建镜像
+# 生产部署请用: docker compose -f docker-compose.yml up -d --build
+services:
+  voice:
+    volumes:
+      - ./models:/opt/voice/models:ro
+      - ./server/config.yaml:/opt/voice/config.yaml:ro
+      - ./server/app:/opt/voice/app:ro

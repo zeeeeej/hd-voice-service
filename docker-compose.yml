@@ -1,0 +1,22 @@
+services:
+  voice:
+    build: ./server
+    image: hd-voice-service:cpu
+    container_name: hd-voice
+    ports:
+      - "${VOICE_PORT:-8090}:8090"
+    volumes:
+      - ./models:/opt/voice/models:ro
+      - ./server/config.yaml:/opt/voice/config.yaml:ro
+    environment:
+      VOICE_API_KEY: ${VOICE_API_KEY:-devkey-local}
+      VOICE_CONFIG: /opt/voice/config.yaml
+      VOICE_MODELS_DIR: /opt/voice/models
+    mem_limit: 4g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/v1/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 90s
+    restart: unless-stopped

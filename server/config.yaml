@@ -1,0 +1,68 @@
+# 全部路径相对 models_dir；models_dir 可被环境变量 VOICE_MODELS_DIR 覆盖
+models_dir: /opt/voice/models
+
+server:
+  host: 0.0.0.0
+  port: 8090
+
+asr:
+  encoder: streaming-zipformer-zh-int8-2025-06-30/encoder.int8.onnx
+  decoder: streaming-zipformer-zh-int8-2025-06-30/decoder.onnx
+  joiner: streaming-zipformer-zh-int8-2025-06-30/joiner.int8.onnx
+  tokens: streaming-zipformer-zh-int8-2025-06-30/tokens.txt
+  num_threads: 2
+  language: zh
+  # 端点兜底（VAD 为主，recognizer 端点为兜底）
+  rule1_min_trailing_silence: 2.4
+  rule2_min_trailing_silence: 1.2
+  rule3_min_utterance_length: 20.0
+
+denoiser:
+  gtcrn_model: gtcrn_simple.onnx
+  num_threads: 1
+
+vad:
+  model: silero_vad.onnx
+  threshold: 0.5
+  min_silence: 0.5
+  min_speech: 0.25
+  max_speech: 20.0
+  window_size: 512
+  sample_rate: 16000
+  num_threads: 1
+  buffer_seconds: 60
+
+tts:
+  engine: matcha            # matcha（单女声，CPU 低延迟~20x，baker 数据集仅限非商用）| kokoro（103 音色，质量优先，CPU 上首包~1.4s）
+  num_threads: 4
+  default_speaker: 0
+  default_speed: 1.0
+  sample_rate_choices: [16000, 24000]
+  # --- kokoro ---
+  model: kokoro-int8-multi-lang-v1_1/model.int8.onnx
+  lexicon: kokoro-int8-multi-lang-v1_1/lexicon-zh.txt,kokoro-int8-multi-lang-v1_1/lexicon-us-en.txt
+  tokens: kokoro-int8-multi-lang-v1_1/tokens.txt
+  data_dir: kokoro-int8-multi-lang-v1_1/espeak-ng-data
+  dict_dir: ""  # sherpa-onnx >=1.12.15 无需 dict_dir
+  voices: kokoro-int8-multi-lang-v1_1/voices.bin
+  rule_fsts: kokoro-int8-multi-lang-v1_1/date-zh.fst,kokoro-int8-multi-lang-v1_1/number-zh.fst,kokoro-int8-multi-lang-v1_1/phone-zh.fst
+  # --- matcha（engine: matcha 时生效）---
+  matcha_model: matcha-icefall-zh-baker/model-steps-3.onnx
+  matcha_lexicon: matcha-icefall-zh-baker/lexicon.txt
+  matcha_tokens: matcha-icefall-zh-baker/tokens.txt
+  matcha_dict_dir: matcha-icefall-zh-baker/dict
+  matcha_data_dir: ""       # 留空复用 kokoro 的 espeak-ng-data
+  matcha_vocoder: vocos-22khz-univ.onnx
+  matcha_rule_fsts: matcha-icefall-zh-baker/date.fst,matcha-icefall-zh-baker/number.fst,matcha-icefall-zh-baker/phone.fst
+  matcha_noise_scale: 0.667
+  matcha_length_scale: 1.0
+
+limits:
+  asr_sessions: 32
+  tts_sessions: 4
+  idle_timeout: 60
+  max_session: 300
+  max_upload_mb: 25
+
+defaults:
+  denoise: false
