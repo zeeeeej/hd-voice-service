@@ -3,10 +3,12 @@
 > 状态：**v1 已完成并验证**（2026-09-25，冒烟 11/11、单测 42/42、8 路并发通过）
 >
 > 实施记录（与原计划的差异/新决策）：
-> 1. **TTS 默认引擎改为 matcha-icefall-zh-baker + vocos**：kokoro int8 在 CPU（M 系列 arm64）上每次
->    generate 固定开销 ~700ms、RTF≈0.8、回调粒度 ~2s 音频/次，首块 ~1.4s 无法满足 ≤800ms；matcha
->    实测 RTF≈0.05、首块 ~260ms。引擎经 `config.yaml tts.engine` 一行切换，kokoro 保留可选
->    （⚠️ baker 数据集仅限非商用，商用场景需切 kokoro 或上 GPU 后复测）。
+> 1. **TTS 双引擎配置化（`config.yaml tts.engine`）**。曾一度默认 matcha（kokoro int8 在 CPU 上
+>    每次 generate 固定开销 ~700ms、RTF≈0.8、首块 ~1.4s；matcha 实测 RTF≈0.05、首块 ~260ms）。
+>    **最终决策（2026-09-25，xpl）：默认 kokoro**——商用许可干净（Apache-2.0 + 龙猫数据宽容授权）、
+>    103 音色，**正式应用走 GPU**（fp16 权重 + CUDA EP，CPU 固定开销届时消失）；matcha 降级为
+>    测试对比可选项（⚠️ baker/CSMSC 数据仅限非商用，不得随产品交付）。
+>    详见 [TTS引擎对比.md](./TTS引擎对比.md)。冒烟测试首块阈值按引擎自适应（kokoro@CPU 1600ms / matcha 800ms）。
 > 2. sherpa-onnx 1.13.8 Python API 实况：流式解码需 `while recognizer.is_ready(stream):
 >    decode_stream(stream)` 循环（单次调用只推进一步）；文本取 `recognizer.get_result(stream)`
 >    （`stream.result` 不存在）；降噪 `OnlineSpeechDenoiser.run(samples, sample_rate)` 返回

@@ -7,15 +7,14 @@
 v1（精简核心）：GTCRN 流式降噪（可开关）+ Silero VAD + streaming zipformer zh int8 + 流式 TTS。
 SenseVoice 精修 / 标点 / ITN 延后（WS 参数显式拒绝 `unsupported_option`）。CPU 推理，Docker 部署。
 
-**TTS 引擎二选一**（`server/config.yaml` → `tts.engine`，重启即切换）：
+**TTS 双引擎**（`server/config.yaml` → `tts.engine`，重启即切换，接口/协议完全一致）：
 
-| 引擎 | 音色 | 本机实测（M 系列 arm64, Docker） | 许可 |
+| 引擎 | 定位 | 本机 CPU 实测 | 许可 |
 |---|---|---|---|
-| `matcha`（默认） | 单中文女声 (baker) | **RTF ≈0.05，WS 首块 ~260ms** | ⚠️ baker 数据集**仅限非商用** |
-| `kokoro` | 中英 103 音色 | RTF ≈0.8，每次合成固定开销 ~700ms，WS 首块 ~1.4s | Apache-2.0 权重 |
+| `kokoro`（**默认**） | 正式路线：103 音色、质量优先；**生产走 GPU fp16** | RTF ≈0.8，WS 首块 ~1.4s（CPU 已知限制） | Apache-2.0，商用干净 |
+| `matcha`（可选） | 测试/调协议对比用：CPU 低延迟 | RTF ≈0.05，WS 首块 ~260ms | ⚠️ baker 数据**仅限非商用** |
 
-> kokoro int8 在 CPU 上达不到 800ms 首块目标（回调粒度粗 + 固定开销大，线程 2→6 收益甚微）；
-> 生产 x86/GPU 可复测后切回。切换只改一行配置，接口/协议完全一致。
+> 详细对比、许可链查证与延迟预算见 [TTS引擎对比.md](./TTS引擎对比.md)。
 
 ## 快速开始（macOS / Linux，需 Docker）
 

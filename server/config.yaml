@@ -33,7 +33,7 @@ vad:
   buffer_seconds: 60
 
 tts:
-  engine: matcha            # matcha（单女声，CPU 低延迟~20x，baker 数据集仅限非商用）| kokoro（103 音色，质量优先，CPU 上首包~1.4s）
+  engine: kokoro            # kokoro（默认：103 音色，商用许可干净，生产走 GPU fp16）| matcha（测试对比可选：CPU 首块~260ms，baker 数据仅限非商用）
   num_threads: 4
   default_speaker: 0
   default_speed: 1.0
