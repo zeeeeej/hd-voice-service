@@ -30,9 +30,13 @@ def read_wav(path: str) -> bytes:
 
 def build_url(args) -> str:
     sep = "&" if "?" in args.url else "?"
-    params = [f"encoding=pcm_s16le", "sample_rate=16000", "channels=1"]
+    params = ["encoding=pcm_s16le", "sample_rate=16000", "channels=1"]
     if args.denoise:
         params.append("denoise=true")
+    if args.no_refine:
+        params.append("refine=false")
+    if args.no_punctuate:
+        params.append("punctuate=false")
     return f"{args.url}{sep}{'&'.join(params)}"
 
 
@@ -85,8 +89,11 @@ async def run(args) -> int:
                     elif t == "final":
                         finals.append(ev)
                         tm = ev.get("timings") or {}
-                        print(f"\n[final #{ev['segment']}] {ev['start']:.2f}-{ev['end']:.2f}s "
-                              f"rtf={ev.get('rtf')} asr_ms={tm.get('asr_ms')} denoise_ms={tm.get('denoise_ms')}\n"
+                        tag = "精修" if ev.get("refined") else "流式"
+                        print(f"\n[final #{ev['segment']}|{tag}] {ev['start']:.2f}-{ev['end']:.2f}s "
+                              f"rtf={ev.get('rtf')} asr_ms={tm.get('asr_ms')} "
+                              f"refine_ms={tm.get('refine_ms')} punc_ms={tm.get('punc_ms')} "
+                              f"denoise_ms={tm.get('denoise_ms')}\n"
                               f"  文本: {ev['text']}")
                     elif t == "vad":
                         if args.verbose:
@@ -127,6 +134,8 @@ def main():
     ap.add_argument("--url", default="ws://localhost:8090/v1/ws/asr")
     ap.add_argument("--api-key", default="devkey-local")
     ap.add_argument("--denoise", action="store_true", help="开启 GTCRN 流式降噪")
+    ap.add_argument("--no-refine", action="store_true", help="关闭句末 SenseVoice 精修（默认跟随服务端配置=开）")
+    ap.add_argument("--no-punctuate", action="store_true", help="关闭标点恢复")
     ap.add_argument("--fast", action="store_true", help="不按实时节奏，全速推流")
     ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--quiet", action="store_true", help="不打印 partial 刷新")

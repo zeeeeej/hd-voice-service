@@ -51,8 +51,8 @@ def test_ws_asr_unauthorized(client):
 
 
 def test_ws_asr_unsupported_options(client):
-    for qs in ("refine=true", "punctuate=true", "itn=1", "encoding=opus",
-               "sample_rate=8000", "channels=2"):
+    # v2：refine/punctuate 已支持；itn=false 显式拒绝（模型以 ITN-on 加载）
+    for qs in ("itn=false", "encoding=opus", "sample_rate=8000", "channels=2"):
         with client.websocket_connect(f"/v1/ws/asr?api_key=test-key&{qs}") as ws:
             ev = ws.receive_json()
             assert ev["type"] == "error" and ev["code"] == "unsupported_option", qs

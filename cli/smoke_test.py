@@ -26,6 +26,11 @@ from pathlib import Path
 import websockets
 
 SMOKE_TEXT = "今天天气不错，我们一起去公园散步吧。"
+PUNCT_CHARS = "，。、！？；：…“”‘’（）《》,.!?;:\"'()[] 　"
+
+
+def strip_punct(t: str) -> str:
+    return "".join(ch for ch in t if ch not in PUNCT_CHARS)
 PASSED: list[str] = []
 FAILED: list[str] = []
 
@@ -151,12 +156,23 @@ async def main(args) -> int:
 
     # 3. WS ASR 识别 TTS 音频（回环），断言字符重合率
     text, finals, wall = await ws_asr_collect(f"{ws_base}/v1/ws/asr", key, tts_pcm, denoise=False)
-    ratio = difflib.SequenceMatcher(None, SMOKE_TEXT.replace("，", "").replace("。", ""),
-                                    text.replace("，", "").replace("。", "").replace(" ", "")).ratio()
+    ratio = difflib.SequenceMatcher(None, strip_punct(SMOKE_TEXT), strip_punct(text)).ratio()
     check("ASR 回环识别重合率 ≥ 0.85", ratio >= 0.85,
           f"ratio={ratio:.3f} 期望={SMOKE_TEXT!r} 识别={text!r} finals={len(finals)} wall={wall:.1f}s")
     check("final 携带 start/end/timings", bool(finals) and all(
         "start" in f and "end" in f and f.get("timings") for f in finals))
+
+    # 3.5 v2 精修通道：服务端加载了精修模型时，默认 final 必须 refined=true 且带标点
+    refine_info = models["models"].get("refine")
+    if refine_info:
+        refined_ok = bool(finals) and finals[0].get("refined") is True
+        tm = finals[0].get("timings", {}) if finals else {}
+        check("句末精修生效 (refined=true)", refined_ok,
+              f"refine_ms={tm.get('refine_ms')} punc_ms={tm.get('punc_ms')} text={text!r}")
+        check("精修文本含标点", bool(text) and any(ch in text for ch in "，。！？、；："),
+              f"text={text!r}")
+    else:
+        print("[SKIP] 精修模型未加载（refine=null），跳过 refined 断言")
 
     # 4. 含噪样本 denoise A/B（信息性）
     noisy = Path(args.noisy_wav)
@@ -164,9 +180,9 @@ async def main(args) -> int:
         pcm, _ = wav_to_pcm16(noisy.read_bytes())
         t_off, f_off, _ = await ws_asr_collect(f"{ws_base}/v1/ws/asr", key, pcm, denoise=False)
         t_on, f_on, _ = await ws_asr_collect(f"{ws_base}/v1/ws/asr", key, pcm, denoise=True)
-        expected = Path(args.clean_txt).read_text().strip() if Path(args.clean_txt).is_file() else ""
-        r_off = difflib.SequenceMatcher(None, expected, t_off).ratio() if expected else None
-        r_on = difflib.SequenceMatcher(None, expected, t_on).ratio() if expected else None
+        expected = strip_punct(Path(args.clean_txt).read_text().strip()) if Path(args.clean_txt).is_file() else ""
+        r_off = difflib.SequenceMatcher(None, expected, strip_punct(t_off)).ratio() if expected else None
+        r_on = difflib.SequenceMatcher(None, expected, strip_punct(t_on)).ratio() if expected else None
         check("含噪样本协议正常 (denoise off/on)", len(f_off) >= 0 and len(f_on) >= 0)
         print(f"       A/B: off={t_off!r} (ratio={r_off})")
         print(f"            on ={t_on!r} (ratio={r_on})")

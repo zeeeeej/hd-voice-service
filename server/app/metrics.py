@@ -14,4 +14,7 @@ asr_chunk_ms = Histogram("voice_asr_chunk_ms", "asr feed+decode latency ms", buc
 asr_first_partial_ms = Histogram("voice_asr_first_partial_ms", "speech_start -> first partial ms", buckets=(50, 100, 200, 300, 500, 800, 1500))
 asr_final_ms = Histogram("voice_asr_final_ms", "speech_end -> final emitted ms", buckets=(10, 50, 100, 250, 500, 1000))
 tts_first_chunk_ms = Histogram("voice_tts_first_chunk_ms", "sentence -> first audio chunk ms", buckets=(50, 100, 200, 400, 800, 1500, 3000))
+refine_ms = Histogram("voice_refine_ms", "sense-voice refine latency ms", buckets=(50, 100, 250, 500, 1000, 2000, 4000))
+punc_ms = Histogram("voice_punc_ms", "punctuation latency ms", buckets=(10, 50, 100, 250, 500, 1000))
+refine_total = Counter("voice_refine_total", "refine attempts", ["result"])  # ok|fallback
 tts_sentence_ms = Histogram("voice_tts_sentence_ms", "sentence synthesis total ms", buckets=(100, 250, 500, 1000, 2000, 4000))

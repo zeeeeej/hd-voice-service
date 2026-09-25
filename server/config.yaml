@@ -57,6 +57,20 @@ tts:
   matcha_noise_scale: 0.667
   matcha_length_scale: 1.0
 
+# v2 句末精修（SenseVoice int8 + ct-transformer 标点 + ITN）
+# 模型缺失或 enabled=false 时服务照常启动，final 自动回退流式文本（refined=false）
+refine:
+  enabled: true
+  sense_voice_model: sense-voice-zh-en-ja-ko-yue-2024-07-17/model.int8.onnx
+  sense_voice_tokens: sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt
+  use_itn: true
+  language: auto
+  punct_model: punct-ct-transformer-zh-en-vocab272727-2024-04-12/model.onnx
+  num_threads: 2
+
+# 全局推理 provider：cpu | cuda（gpu-fp16 profile，须同时换 fp16/fp32 权重）| coreml（本机实测无收益）
+provider: cpu
+
 limits:
   asr_sessions: 32
   tts_sessions: 4
@@ -66,3 +80,5 @@ limits:
 
 defaults:
   denoise: false
+  refine: true
+  punctuate: true

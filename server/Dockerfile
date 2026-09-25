@@ -5,11 +5,12 @@
 FROM python:3.11-slim-bookworm
 
 ARG PIP_INDEX_URL=
+ARG REQUIREMENTS=requirements.txt   # gpu-fp16 profile 用 requirements-gpu.txt
 
 WORKDIR /opt/voice
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir ${PIP_INDEX_URL:+-i $PIP_INDEX_URL} -r requirements.txt
+COPY requirements.txt requirements-gpu.txt ./
+RUN pip install --no-cache-dir ${PIP_INDEX_URL:+-i $PIP_INDEX_URL} -r $REQUIREMENTS
 
 COPY app ./app
 COPY config.yaml ./config.yaml

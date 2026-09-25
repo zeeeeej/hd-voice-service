@@ -4,8 +4,15 @@
 对应用服务器暴露 REST + WebSocket。设计与实测依据见《自建 Linux 流式语音服务器.md》（已移至
 `~/Documents/ai/luckfox-audio/`，本仓库不再随附），实施计划与实施记录见 [plan.md](./plan.md)。
 
-v1（精简核心）：GTCRN 流式降噪（可开关）+ Silero VAD + streaming zipformer zh int8 + 流式 TTS。
-SenseVoice 精修 / 标点 / ITN 延后（WS 参数显式拒绝 `unsupported_option`）。CPU 推理，Docker 部署。
+**v2（当前）**：GTCRN 流式降噪（可开关）+ Silero VAD + streaming zipformer zh int8 流式识别
++ **SenseVoice 句末精修（含标点/ITN，双通道）** + ct-transformer 流式文本标点 + 流式 TTS。
+CPU 推理，Docker 部署；gpu-fp16 profile 文件已备好（`docker-compose.gpu.yml`，待实机验证）。
+
+双通道语义（与设计文档 §3.3 一致）：
+- `refine=true`（默认）：句末端点 → 段缓存音频送 SenseVoice（自带标点/ITN）→ `final.refined=true`；
+  **精修失败自动回退流式文本**（`refined=false`），不报错
+- `punctuate=true`（默认）：仅作用于**流式回退文本**（ct-transformer 补标点），不叠加在 SenseVoice 输出上
+- `itn=false`：显式拒绝（精修模型以 ITN-on 加载，全局开关在 `config.yaml refine.use_itn`）
 
 **TTS 双引擎**（`server/config.yaml` → `tts.engine`，重启即切换，接口/协议完全一致）：
 
@@ -19,8 +26,9 @@ SenseVoice 精修 / 标点 / ITN 延后（WS 参数显式拒绝 `unsupported_opt
 ## 快速开始（macOS / Linux，需 Docker）
 
 ```bash
-# 1. 下载模型（~390MB，走 hf-mirror + GitHub Release，幂等）
+# 1. 下载模型（~920MB 含精修模型，走 hf-mirror + GitHub Release，幂等）
 ./scripts/download_models.sh
+# GPU 机器额外下载 fp16/fp32 权重（~1.7GB）：./scripts/download_models.sh --gpu
 
 # 2. 构建并启动（arm64 机器上即 arm64 镜像；x86 服务器上构建即得 amd64）
 cp .env.example .env          # 按需改 VOICE_API_KEY / VOICE_PORT
@@ -71,15 +79,18 @@ connect ws://localhost:8090/v1/ws/asr?api_key=devkey-local&denoise=true
 
 | 指标 | 实测 |
 |---|---|
-| 模型加载（全部常驻） | ~6s |
-| 稳态 RAM | ~470MB（matcha）/ ~1.2GB（kokoro） |
+| 模型加载（全部常驻，含精修+标点） | ~6.3s |
+| 稳态 RAM | ~1.2GB（kokoro+精修全量） |
+| **句末精修附加延迟（6s 语音段）** | **refine ~371ms + 标点由 SenseVoice 内置**（文档目标 ≤500ms ✅） |
+| 流式文本标点（ct-transformer） | ~26ms |
 | WS ASR（6s 中文语音，实时节奏） | 16 个 partial 连续刷新；final 全文正确；RTF ≈0.09–0.15 |
 | REST ASR 整文件 | RTF ≈0.12 |
 | 8 路并发 WS ASR | 全部正确、零错误 |
 | TTS 首块（matcha） | 257–332ms（目标 ≤800ms） |
 | TTS 合成实时率（matcha） | wall/audio ≈0.18 |
 | 限流 | asr_sessions=1 时第 2 路正确收到 `overloaded`(1013) |
-| 冒烟测试 | `cli/smoke_test.py` 11/11 PASS |
+| 冒烟测试 | `cli/smoke_test.py` 13/13 PASS（含精修断言） |
+| ASR 回环重合率（TTS→ASR，精修后） | **1.000** |
 
 降噪 A/B（合成粉噪 ~5dB SNR 样本）：zipformer 对该噪声水平本身鲁棒，denoise on/off 识别结果一致；
 GTCRN 链路已验证可用，真实板端麦克风噪声的 A/B 待板子接入后复测（默认 off）。
@@ -113,6 +124,7 @@ models/   模型文件（git 忽略，由 download_models.sh 填充）
 ## 路线图
 
 - [x] v1 精简核心：GTCRN 降噪 + VAD + 流式 ASR + 流式 TTS + CLI 验证（本机 Docker CPU）
-- [ ] v2：SenseVoice 句末精修 + 标点恢复 + ITN（双通道 final）
-- [ ] v2：Opus 编解码（4G 链路）
-- [ ] v3：GPU profile（CUDA EP + fp16 权重，注意 int8 与 CUDA EP 不兼容）
+- [x] v2：SenseVoice 句末精修 + 标点/ITN（双通道 final）+ ct-transformer 流式标点
+- [x] v2（预备）：gpu-fp16 profile 文件（compose/config/requirements/下载 --gpu，**待 GPU 实机验证**）
+- [ ] v2：Opus 编解码（4G 链路，需镜像加装 ffmpeg）
+- [ ] v3：GPU 实机部署 + kokoro fp16 首块延迟复测（届时冒烟阈值收紧回 800ms）

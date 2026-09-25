@@ -78,6 +78,18 @@ class TtsCfg:
 
 
 @dataclass
+class RefineCfg:
+    """v2 句末精修：SenseVoice 离线识别 + ct-transformer 标点 + ITN（模型级开关）。"""
+    enabled: bool = True
+    sense_voice_model: str = "sense-voice-zh-en-ja-ko-yue-2024-07-17/model.int8.onnx"
+    sense_voice_tokens: str = "sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt"
+    use_itn: bool = True            # 模型加载期固定；WS itn=false 会话将被显式拒绝
+    language: str = "auto"          # auto|zh|en|ja|ko|yue
+    punct_model: str = "punct-ct-transformer-zh-en-vocab272727-2024-04-12/model.onnx"
+    num_threads: int = 2
+
+
+@dataclass
 class LimitsCfg:
     asr_sessions: int = 32
     tts_sessions: int = 4
@@ -89,16 +101,20 @@ class LimitsCfg:
 @dataclass
 class DefaultsCfg:
     denoise: bool = False
+    refine: bool = True      # v2 默认开精修（模型缺失时自动回退流式文本）
+    punctuate: bool = True
 
 
 @dataclass
 class Settings:
     models_dir: Path = Path("/opt/voice/models")
     api_key: str = "devkey-local"
+    provider: str = "cpu"  # cpu | cuda | coreml（gpu-fp16 profile 用 cuda）
     asr: AsrCfg = field(default_factory=AsrCfg)
     denoiser: DenoiserCfg = field(default_factory=DenoiserCfg)
     vad: VadCfg = field(default_factory=VadCfg)
     tts: TtsCfg = field(default_factory=TtsCfg)
+    refine: RefineCfg = field(default_factory=RefineCfg)
     limits: LimitsCfg = field(default_factory=LimitsCfg)
     defaults: DefaultsCfg = field(default_factory=DefaultsCfg)
 
@@ -127,6 +143,8 @@ def load_settings() -> Settings:
     s.denoiser = _fill(DenoiserCfg, raw.get("denoiser"))
     s.vad = _fill(VadCfg, raw.get("vad"))
     s.tts = _fill(TtsCfg, raw.get("tts"))
+    s.refine = _fill(RefineCfg, raw.get("refine"))
+    s.provider = raw.get("provider", "cpu")
     s.limits = _fill(LimitsCfg, raw.get("limits"))
     s.defaults = _fill(DefaultsCfg, raw.get("defaults"))
     if port := os.environ.get("VOICE_PORT"):

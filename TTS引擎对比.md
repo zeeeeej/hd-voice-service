@@ -78,6 +78,20 @@ kokoro 在 CPU 上慢的根因是推理管线固定开销 + 回调粒度粗，�
 2. 向标贝科技购买 CSMSC 商业授权，继续用 matcha。
 3. 硬扛 kokoro CPU 首块 1.4s（延迟预算顶格，不推荐）。
 
+## 5.1 本机 Apple GPU（CoreML EP）实测：无收益
+
+sherpa-onnx `provider` 支持 `coreml`（Apple GPU/神经引擎路径，Mac 上无 CUDA/Metal EP）。
+本机实测（2026-09-25，同机热态对比）：
+
+| 项 | CPU EP | CoreML EP |
+|---|---|---|
+| kokoro TTS「今天天气不错，」合成 | 1885ms | 1814ms（~4%，噪声级） |
+| ASR zipformer int8 加载 | ~3s | 10.2s（子图编译反而更慢） |
+
+原因：**int8 动态量化算子 + 动态 shape 在 CoreML/ANE 覆盖率极低**，子图基本全部回退
+CPU。结论：本机维持 CPU；若未来重试 Apple GPU，前提换 fp32/fp16 权重，预期收益仍有限。
+`gpu-fp16` profile 仅面向生产 NVIDIA 机器（CUDA EP）。
+
 ## 6. 后续行动项
 
 - [ ] GPU 机器到位后：接 `gpu-fp16` profile（CUDA EP + kokoro fp32/fp16 权重），实测首块延迟；

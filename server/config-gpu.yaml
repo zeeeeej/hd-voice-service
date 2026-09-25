@@ -1,0 +1,75 @@
+# gpu-fp16 profile（⚠️ 待 GPU 实机验证）
+# 与 config.yaml 的差异：provider=cuda + 全部换非 int8 权重（CUDA EP 不支持 int8 量化算子）
+# 模型需先下载：./scripts/download_models.sh --gpu
+models_dir: /opt/voice/models
+provider: cuda
+
+asr:
+  encoder: streaming-zipformer-zh-fp16-2025-06-30/encoder.fp16.onnx
+  decoder: streaming-zipformer-zh-fp16-2025-06-30/decoder.onnx
+  joiner: streaming-zipformer-zh-fp16-2025-06-30/joiner.fp16.onnx
+  tokens: streaming-zipformer-zh-fp16-2025-06-30/tokens.txt
+  num_threads: 2
+  language: zh
+  rule1_min_trailing_silence: 2.4
+  rule2_min_trailing_silence: 1.2
+  rule3_min_utterance_length: 20.0
+
+denoiser:
+  gtcrn_model: gtcrn_simple.onnx
+  num_threads: 1
+
+vad:
+  model: silero_vad.onnx
+  threshold: 0.5
+  min_silence: 0.5
+  min_speech: 0.25
+  max_speech: 20.0
+  window_size: 512
+  sample_rate: 16000
+  num_threads: 1
+  buffer_seconds: 60
+
+tts:
+  engine: kokoro
+  num_threads: 2
+  default_speaker: 0
+  default_speed: 1.0
+  sample_rate_choices: [16000, 24000]
+  model: kokoro-multi-lang-v1_1/model.onnx            # fp32（GPU 用）
+  lexicon: kokoro-multi-lang-v1_1/lexicon-zh.txt,kokoro-multi-lang-v1_1/lexicon-us-en.txt
+  tokens: kokoro-multi-lang-v1_1/tokens.txt
+  data_dir: kokoro-multi-lang-v1_1/espeak-ng-data
+  dict_dir: ""
+  voices: kokoro-multi-lang-v1_1/voices.bin
+  rule_fsts: kokoro-multi-lang-v1_1/date-zh.fst,kokoro-multi-lang-v1_1/number-zh.fst,kokoro-multi-lang-v1_1/phone-zh.fst
+  matcha_model: matcha-icefall-zh-baker/model-steps-3.onnx
+  matcha_lexicon: matcha-icefall-zh-baker/lexicon.txt
+  matcha_tokens: matcha-icefall-zh-baker/tokens.txt
+  matcha_dict_dir: matcha-icefall-zh-baker/dict
+  matcha_data_dir: ""
+  matcha_vocoder: vocos-22khz-univ.onnx
+  matcha_rule_fsts: matcha-icefall-zh-baker/date.fst,matcha-icefall-zh-baker/number.fst,matcha-icefall-zh-baker/phone.fst
+  matcha_noise_scale: 0.667
+  matcha_length_scale: 1.0
+
+refine:
+  enabled: true
+  sense_voice_model: sense-voice-zh-en-ja-ko-yue-2024-07-17/model.onnx   # fp32 938MB（int8 与 CUDA EP 不兼容）
+  sense_voice_tokens: sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt
+  use_itn: true
+  language: auto
+  punct_model: punct-ct-transformer-zh-en-vocab272727-2024-04-12/model.onnx
+  num_threads: 2
+
+limits:
+  asr_sessions: 32
+  tts_sessions: 4
+  idle_timeout: 60
+  max_session: 300
+  max_upload_mb: 25
+
+defaults:
+  denoise: false
+  refine: true
+  punctuate: true

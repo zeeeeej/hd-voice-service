@@ -19,7 +19,7 @@ from .auth import Unauthorized, ws_authorized
 router = APIRouter()
 log = logging.getLogger(__name__)
 
-V1_UNSUPPORTED = ("refine", "punctuate", "itn")  # v1 精简核心：显式拒绝
+# v2：refine/punctuate 已支持；itn=false 不支持（精修模型以 ITN-on 加载，见 config refine.use_itn）
 
 
 def _truthy(v) -> bool:
@@ -63,14 +63,17 @@ async def ws_asr(ws: WebSocket):
             raise UnsupportedOption("v1 supports sample_rate=16000 only")
         if int(q.get("channels", 1)) != 1:
             raise UnsupportedOption("v1 supports channels=1 only")
-        for flag in V1_UNSUPPORTED:
-            if flag in q and _truthy(q.get(flag)):
-                raise UnsupportedOption(f"{flag}=true is not available in v1 (refine stage deferred)")
+        if "itn" in q and not _truthy(q.get("itn")):
+            raise UnsupportedOption(
+                "itn=false is not supported: refine model is loaded with ITN enabled "
+                "(change config refine.use_itn and restart for a global switch)")
     except (UnsupportedOption, ValueError) as e:
         await fail(e if isinstance(e, UnsupportedOption) else UnsupportedOption(str(e)))
         return
 
     denoise = _truthy(q.get("denoise")) if "denoise" in q else settings.defaults.denoise
+    refine = _truthy(q.get("refine")) if "refine" in q else settings.defaults.refine
+    punctuate = _truthy(q.get("punctuate")) if "punctuate" in q else settings.defaults.punctuate
 
     sem: asyncio.Semaphore = ws.app.state.asr_sem
     if sem.locked():
@@ -83,7 +86,8 @@ async def ws_asr(ws: WebSocket):
         metrics.asr_sessions_active.inc()
         metrics.asr_sessions_total.inc()
         try:
-            session: AsrSession = await asyncio.to_thread(AsrSession, hub, denoise)
+            session: AsrSession = await asyncio.to_thread(
+                AsrSession, hub, denoise, refine, punctuate)
         except Exception as e:
             log.exception("failed to create ASR session")
             from ..errors import VoiceError
@@ -133,6 +137,13 @@ async def ws_asr(ws: WebSocket):
                         await ws.send_json(ev)
                         if ev["type"] == "final":
                             finals += 1
+                            tm = ev.get("timings") or {}
+                            if tm.get("refine_ms") is not None:
+                                metrics.refine_ms.observe(tm["refine_ms"])
+                            if tm.get("punc_ms") is not None:
+                                metrics.punc_ms.observe(tm["punc_ms"])
+                            metrics.refine_total.labels(
+                                result="ok" if ev.get("refined") else "fallback").inc()
                             lat = session.first_partial_latency_ms
                             if lat is not None and not first_partial_observed:
                                 metrics.asr_first_partial_ms.observe(lat)
@@ -167,8 +178,11 @@ async def ws_asr(ws: WebSocket):
                         await _send_error(ws, "bad_request", "config frame must precede audio")
                         await ws.close(code=1008)
                         break
-                    new_denoise = _truthy(ctrl.get("denoise", False))
-                    session = await asyncio.to_thread(AsrSession, hub, new_denoise)
+                    new_denoise = _truthy(ctrl.get("denoise", denoise))
+                    new_refine = _truthy(ctrl.get("refine", refine))
+                    new_punct = _truthy(ctrl.get("punctuate", punctuate))
+                    session = await asyncio.to_thread(
+                        AsrSession, hub, new_denoise, new_refine, new_punct)
                     continue
                 await _send_error(ws, "bad_request", f"unknown control type {ctype!r}")
                 await ws.close(code=1008)
@@ -185,5 +199,5 @@ async def ws_asr(ws: WebSocket):
                 pass
         finally:
             metrics.asr_sessions_active.dec()
-            log.info("asr session closed rid=%s finals=%d audio=%s denoise=%s",
-                     rid, finals, got_audio, session.denoise_enabled)
+            log.info("asr session closed rid=%s finals=%d audio=%s denoise=%s refine=%s",
+                     rid, finals, got_audio, session.denoise_enabled, session.refine_enabled)

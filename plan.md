@@ -1,6 +1,6 @@
 # hd-voice-service v1：本机 Docker CPU 流式语音服务器（精简核心 + GTCRN 降噪）
 
-> 状态：**v1 已完成并验证**（2026-09-25，冒烟 11/11、单测 42/42、8 路并发通过）
+> 状态：**v2 精修通道已完成并验证**（2026-09-25，冒烟 13/13、单测 52/52；v1: 8 路并发通过）
 >
 > 实施记录（与原计划的差异/新决策）：
 > 1. **TTS 双引擎配置化（`config.yaml tts.engine`）**。曾一度默认 matcha（kokoro int8 在 CPU 上
@@ -23,6 +23,20 @@
 > 8. 模型下载实测：hf-mirror（zipformer 167MB ~21min、kokoro 215MB ~15min、matcha 92MB ~20s）+
 >    GitHub Release（gtcrn 0.54MB、silero_vad 实测 643854B 而非文档 2.3MB、vocos 53.9MB）。
 > 9. 开发迭代用 docker-compose.override.yml 挂载源码（生产 `docker compose -f docker-compose.yml`）。
+> 10. **v2 精修双通道语义修正**：SenseVoice(use_itn) 输出**已含标点**，ct-transformer 只用于
+>     流式回退文本（refine=false 或精修失败），不叠加（否则出现「。。」双标点）。
+> 11. VAD 改为逐 512 窗推进并即时处理状态转换：客户端一次发大块音频（REST/整句帧）也不会
+>     丢失 speech_start/end 与段音频捕获。
+> 12. 精修细节：段音频缓存含 0.5s pre-roll（补 VAD 触发前音头）；<0.25s 短段跳过精修；
+>     缓存安全上限 25s（丢最旧）；精修异常自动回退流式文本（文档要求：回退而非报错）。
+>     `itn=false` 会话显式拒绝（模型级 ITN 加载期固定）。
+> 13. 实测：精修附加延迟 ~371ms（6s 段，文档目标 ≤500ms ✅）；全量模型 RAM ~1.2GB；
+>     TTS→ASR 回环重合率 1.000。
+> 14. gpu-fp16 profile 已备好文件（config-gpu.yaml / docker-compose.gpu.yml /
+>     requirements-gpu.txt / download_models.sh --gpu），**待 GPU 实机验证**；
+>     SenseVoice GPU 需用 fp32 权重（938MB，int8 与 CUDA EP 不兼容）。
+> 15. 本机 Apple GPU（CoreML EP）实测无收益（kokoro 合成 1885→1814ms，ASR 加载反而更慢），
+>     详见 TTS引擎对比.md §5.1。
 > 设计依据：《自建 Linux 流式语音服务器.md》（API 契约 §3.4、流水线 §3.3、模型清单 §3.2）
 > 已核实：sherpa-onnx 1.13.8 Python API 实测存在
 > `OnlineSpeechDenoiser`(GTCRN 流式降噪) / `VoiceActivityDetector` / `OnlineRecognizer.from_transducer` /

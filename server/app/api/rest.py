@@ -45,13 +45,83 @@ def _load(data: bytes, request: Request) -> np.ndarray:
     return samples
 
 
+def _offline_refine_asr(hub, samples: np.ndarray, denoise: bool, punctuate: bool) -> dict:
+    """v2 文档契约：整文件 → 降噪(可选) → VAD 分段 → SenseVoice + ITN → 标点。"""
+    t0 = time.perf_counter()
+    denoise_ms = 0.0
+    if denoise:
+        td = time.perf_counter()
+        d = hub.create_denoiser()
+        fs = int(d.frame_shift_in_samples)
+        outs = []
+        for i in range(0, len(samples) - fs + 1, fs):
+            outs.append(np.asarray(d.run(samples[i:i + fs], SR).samples, dtype=np.float32))
+        tail = np.asarray(d.flush().samples, dtype=np.float32)
+        if tail.size:
+            outs.append(tail)
+        if outs:
+            samples = np.concatenate(outs)
+        denoise_ms = (time.perf_counter() - td) * 1000.0
+
+    vad = hub.create_vad()
+    w = 512
+    for i in range(0, len(samples) - w + 1, w):
+        vad.accept_waveform(samples[i:i + w])
+    vad.flush()
+    segs = []
+    while not vad.empty():
+        seg = vad.front
+        vad.pop()
+        segs.append((seg.start / SR, (seg.start + len(seg.samples)) / SR,
+                     np.asarray(seg.samples, dtype=np.float32)))
+    if not segs:  # VAD 无段兜底：整文件当一段
+        segs = [(0.0, len(samples) / SR, samples)]
+
+    out_segments = []
+    refine_ms_total = 0.0
+    punc_ms_total = 0.0
+    for st, en, pcm in segs:
+        tr = time.perf_counter()
+        stream = hub.refine_recognizer.create_stream()
+        stream.accept_waveform(SR, pcm)
+        hub.refine_recognizer.decode_stream(stream)
+        text = (stream.result.text or "").strip()
+        refine_ms_total += (time.perf_counter() - tr) * 1000.0
+        if not text:
+            continue
+        # SenseVoice(use_itn) 输出已含标点；ct-transformer 仅用于流式回退路径
+        out_segments.append({"index": len(out_segments), "start": round(st, 2),
+                             "end": round(en, 2), "text": text})
+    wall_ms = (time.perf_counter() - t0) * 1000.0
+    audio_s = len(samples) / SR
+    return {
+        "text": "".join(x["text"] for x in out_segments),
+        "refined": True,
+        "segments": out_segments,
+        "timings": {"wall_ms": round(wall_ms, 1), "denoise_ms": round(denoise_ms, 1),
+                    "refine_ms": round(refine_ms_total, 1), "punc_ms": round(punc_ms_total, 1)},
+        "rtf": round((wall_ms / 1000.0) / audio_s, 4) if audio_s > 0 else None,
+    }
+
+
 @router.post("/v1/asr", dependencies=[Depends(require_api_key)])
-async def rest_asr(request: Request, file: UploadFile = File(...), denoise: bool = Query(default=None)):
+async def rest_asr(request: Request, file: UploadFile = File(...), denoise: bool = Query(default=None),
+                   refine: bool = Query(default=None), punctuate: bool = Query(default=None)):
     hub = get_hub(request)
     settings = request.app.state.settings
     denoise = settings.defaults.denoise if denoise is None else denoise
+    refine = settings.defaults.refine if refine is None else refine
+    punctuate = settings.defaults.punctuate if punctuate is None else punctuate
     samples = _load(await _read_upload(file, request), request)
+    audio_s = len(samples) / SR
 
+    if refine and hub.refine_available:
+        result = await asyncio.to_thread(_offline_refine_asr, hub, samples, denoise, punctuate)
+        result.update({"language": hub.info.get("asr", {}).get("language", "zh"),
+                       "denoise": denoise})
+        return result
+
+    # 回退：流式 recognizer 文件模式（refine=false 或精修模型缺失）
     def run():
         session = AsrSession(hub, denoise=denoise)
         events = []
@@ -66,7 +136,6 @@ async def rest_asr(request: Request, file: UploadFile = File(...), denoise: bool
     wall_ms = (time.perf_counter() - t0) * 1000
     finals = [e for e in events if e["type"] == "final"]
     text = "".join(f["text"] for f in finals)
-    audio_s = len(samples) / SR
     return {
         "text": text,
         "language": hub.info.get("asr", {}).get("language", "zh"),

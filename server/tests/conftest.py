@@ -148,6 +148,44 @@ class FakeDenoiser:
         pass
 
 
+class FakeOfflineStream:
+    def __init__(self):
+        self.result = FakeResult()
+        self.fed = None
+
+    def accept_waveform(self, sr, samples):
+        self.fed = samples
+
+
+class FakeOfflineRecognizer:
+    """SenseVoice 替身：decode 后把脚本文本写入 stream.result.text。"""
+
+    def __init__(self, text="精修文本", fail=False):
+        self.text = text
+        self.fail = fail
+        self.streams: list = []
+
+    def create_stream(self):
+        st = FakeOfflineStream()
+        self.streams.append(st)
+        return st
+
+    def decode_stream(self, stream):
+        if self.fail:
+            raise RuntimeError("refine boom")
+        stream.result.text = self.text
+
+
+class FakePunctuation:
+    def __init__(self, suffix="。"):
+        self.suffix = suffix
+        self.calls: list = []
+
+    def add_punctuation(self, text):
+        self.calls.append(text)
+        return text + self.suffix
+
+
 class FakeGeneratedAudio:
     def __init__(self, samples, sample_rate):
         self.samples = samples
@@ -178,12 +216,15 @@ class FakeTts:
 class FakeHub(ModelHub):
     """继承 ModelHub 以复用 resolve_speaker；不加载真实模型。"""
 
-    def __init__(self, settings, recognizer=None, vad_factory=None, tts=None, denoiser_factory=None):
+    def __init__(self, settings, recognizer=None, vad_factory=None, tts=None, denoiser_factory=None,
+                 refine_recognizer=None, punctuation=None):
         super().__init__(settings)
         self.recognizer = recognizer or FakeRecognizer()
         self._vad_factory = vad_factory or (lambda: FakeVad())
         self.tts = tts or FakeTts()
         self._denoiser_factory = denoiser_factory or (lambda: FakeDenoiser())
+        self.refine_recognizer = refine_recognizer
+        self.punctuation = punctuation
         self.info = {"provider": "cpu", "asr": {"language": "zh"}, "tts": {"type": "fake"}}
         self.ready = True
 

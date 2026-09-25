@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""下载 v1 所需模型到 ./models/（幂等）。
+"""下载模型到 ./models/（幂等；--gpu 追加 fp16/fp32 权重）。
 
 源：hf-mirror（HF_ENDPOINT 可覆盖）+ GitHub Release。
   - streaming-zipformer-zh-int8-2025-06-30  (~168MB, 仅 int8 权重+tokens)
@@ -35,6 +35,19 @@ GH_FILES = {
     ),
 }
 
+GPU_REPOS = [
+    # --gpu：fp16/fp32 权重（CUDA EP 不支持 int8 量化算子）
+    ("csukuangfj/sherpa-onnx-streaming-zipformer-zh-fp16-2025-06-30",
+     "streaming-zipformer-zh-fp16-2025-06-30",
+     ["*.onnx", "tokens.txt"]),                                  # ~314MB
+    ("csukuangfj/kokoro-multi-lang-v1_1",
+     "kokoro-multi-lang-v1_1",
+     None),                                                       # fp32 ~427MB
+    ("csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
+     "sense-voice-fp32-tmp",
+     ["model.onnx", "tokens.txt"]),                               # fp32 938MB
+]
+
 HF_REPOS = [
     ("csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30",
      "streaming-zipformer-zh-int8-2025-06-30",
@@ -45,6 +58,13 @@ HF_REPOS = [
     ("csukuangfj/matcha-icefall-zh-baker",
      "matcha-icefall-zh-baker",
      None),  # 低延迟备选 TTS（单女声，注意 baker 数据集仅限非商用）
+    # ---- v2 句末精修通道 ----
+    ("csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
+     "sense-voice-zh-en-ja-ko-yue-2024-07-17",
+     ["model.int8.onnx", "tokens.txt"]),          # 239MB，离线精修 ASR
+    ("csukuangfj/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12",
+     "punct-ct-transformer-zh-en-vocab272727-2024-04-12",
+     ["model.onnx", "tokens.json"]),              # 294MB，标点恢复
 ]
 
 
@@ -113,6 +133,10 @@ def verify() -> None:
         "matcha-icefall-zh-baker/number.fst",
         "matcha-icefall-zh-baker/phone.fst",
         "vocos-22khz-univ.onnx",
+        "sense-voice-zh-en-ja-ko-yue-2024-07-17/model.int8.onnx",
+        "sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt",
+        "punct-ct-transformer-zh-en-vocab272727-2024-04-12/model.onnx",
+        "punct-ct-transformer-zh-en-vocab272727-2024-04-12/tokens.json",
     ]
     missing = [r for r in required if not (MODELS / r).exists()]
     if missing:
@@ -120,8 +144,28 @@ def verify() -> None:
     print(f"[ok  ] 全部模型就绪: {MODELS}")
 
 
+def fetch_gpu() -> None:
+    """下载 gpu-fp16 profile 权重；SenseVoice fp32 并入既有目录。"""
+    from huggingface_hub import snapshot_download
+    for repo_id, subdir, patterns in GPU_REPOS:
+        dst = MODELS / subdir
+        if subdir == "sense-voice-fp32-tmp":
+            dst = MODELS / "sense-voice-zh-en-ja-ko-yue-2024-07-17"
+        marker = dst / f".gpu_download_complete"
+        if marker.is_file():
+            print(f"[skip] {subdir} (gpu) 已完成")
+            continue
+        print(f"[gpu ] {repo_id} -> {dst}")
+        snapshot_download(repo_id=repo_id, local_dir=str(dst), allow_patterns=patterns,
+                          max_workers=4)
+        marker.write_text("ok")
+
+
 if __name__ == "__main__":
     MODELS.mkdir(parents=True, exist_ok=True)
     fetch_github()
     fetch_hf()
     verify()
+    if "--gpu" in sys.argv:
+        fetch_gpu()
+        print("[ok  ] GPU 权重就绪")
