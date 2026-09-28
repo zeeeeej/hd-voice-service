@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import struct
+from unittest.mock import patch
 
 import httpx
 from fastapi.testclient import TestClient
@@ -43,17 +44,23 @@ def test_voice_command_refines_and_synthesizes():
         raise AssertionError(request.url)
 
     client, async_client = make_client(handler)
-    with client:
-        response = client.post(
-            "/v1/voice-command",
-            headers={"X-API-Key": "board-key", "X-Request-Id": "test-request"},
-            files={"file": ("command.wav", wav_bytes(), "audio/wav")},
-        )
+    with patch("app.main.log.info") as log_info:
+        with client:
+            response = client.post(
+                "/v1/voice-command",
+                headers={"X-API-Key": "board-key", "X-Request-Id": "test-request"},
+                files={"file": ("command.wav", wav_bytes(), "audio/wav")},
+            )
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("audio/wav")
     assert response.headers["x-request-id"] == "test-request"
     assert response.content == wav_bytes()
     assert len(calls) == 2
+    log_info.assert_called_once()
+    log_payload = log_info.call_args.args[1]
+    assert '"request_id": "test-request"' in log_payload
+    assert '"recognized_text": "打开灯。"' in log_payload
+    assert '"reply_text": "我收到了命令：打开灯。"' in log_payload
     import asyncio
     asyncio.run(async_client.aclose())
 

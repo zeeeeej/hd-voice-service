@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hmac
+import json
+import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -11,6 +13,8 @@ import httpx
 from fastapi import Depends, FastAPI, File, Header, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
+
+log = logging.getLogger("uvicorn.error")
 
 
 @dataclass(frozen=True)
@@ -187,6 +191,17 @@ def create_app(settings: Settings | None = None, client: httpx.AsyncClient | Non
             raise GatewayError(422, "speech_not_recognized", "no speech was recognized")
 
         reply_text = f"我收到了命令：{recognized}"
+        log.info(
+            "voice_command_text %s",
+            json.dumps(
+                {
+                    "request_id": request.state.request_id,
+                    "recognized_text": recognized,
+                    "reply_text": reply_text,
+                },
+                ensure_ascii=False,
+            ),
+        )
         response = await call_voice(
             request,
             "POST",

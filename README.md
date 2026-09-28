@@ -120,6 +120,8 @@ cd server && ../.venv-dev/bin/python -m pytest tests/ -q     # 61 passed
 # 开发迭代：docker-compose.override.yml 已挂载源码，改代码后
 docker compose restart voice      # 即可生效，无需重建镜像
 docker compose restart gateway    # 修改网关代码后重启
+# 实时查看识别文本和应答文本（日志事件名：voice_command_text）
+docker compose logs -f gateway
 # 生产部署（自包含镜像）：
 docker compose -f docker-compose.yml up -d --build
 
