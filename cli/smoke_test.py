@@ -101,7 +101,7 @@ async def ws_tts_first_chunk(url: str, api_key: str, text: str) -> tuple[float, 
     first = None
     total = 0
     async with websockets.connect(url + f"?api_key={api_key}", max_size=None, proxy=None) as ws:
-        await ws.send(json.dumps({"type": "start", "speaker": 0, "speed": 1.0,
+        await ws.send(json.dumps({"type": "start", "speed": 1.0,
                                   "format": "pcm_s16le", "sample_rate": 16000, "channels": 1}))
         ready = json.loads(await ws.recv())
         assert ready["type"] == "ready", ready
@@ -137,12 +137,13 @@ async def main(args) -> int:
     # - matcha@CPU：硬阈值 800ms（实测 ~260ms）
     # - kokoro@CPU：仅回归哨兵 3000ms（实测冷机 ~1.4s、热机降频 ~2.4s，波动大；
     #   生产目标 ≤800ms 须在 GPU 上达成，见 TTS引擎对比.md §4）
-    max_first_chunk_ms = args.max_first_chunk_ms or (3000 if tts_engine == "kokoro" else 800)
+    engine_thresholds = {"matcha": 800, "aishell3": 1500, "melo": 3000, "kokoro": 3000}
+    max_first_chunk_ms = args.max_first_chunk_ms or engine_thresholds.get(tts_engine, 3000)
     print(f"       tts.engine={tts_engine} → 首块延迟阈值 {max_first_chunk_ms:.0f}ms"
           + ("（CPU 参考值，生产 GPU 目标 ≤800ms）" if tts_engine == "kokoro" else ""))
 
     # 2. REST TTS 合成已知文本
-    payload = json.dumps({"text": SMOKE_TEXT, "speaker": 0, "speed": 1.0, "sample_rate": 16000}).encode()
+    payload = json.dumps({"text": SMOKE_TEXT, "speed": 1.0, "sample_rate": 16000}).encode()
     st, hdrs, body = http_json(f"{base}/v1/tts", key, data=payload,
                                headers={"Content-Type": "application/json"}, timeout=120)
     audio_ms = int(hdrs.get("X-Audio-Ms") or 0)
@@ -242,6 +243,6 @@ if __name__ == "__main__":
     ap.add_argument("--clean-txt", default=".assets/clean.txt")
     ap.add_argument("--out-dir", default=".assets")
     ap.add_argument("--max-first-chunk-ms", type=float, default=None,
-                    help="覆盖默认阈值（默认按引擎: kokoro=1600ms@CPU, matcha=800ms）")
+                    help="覆盖默认阈值（matcha=800ms, aishell3=1500ms, melo/kokoro=3000ms）")
     args = ap.parse_args()
     sys.exit(asyncio.run(main(args)))

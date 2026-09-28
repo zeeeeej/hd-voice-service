@@ -177,7 +177,7 @@ async def ws_tts(ws: WebSocket):
                     return
                 cfg = ctrl
 
-            speaker = cfg.get("speaker", hub.s.tts.default_speaker)
+            speaker = cfg.get("speaker")
             try:
                 sid = hub.resolve_speaker(speaker)
             except ValueError as e:

@@ -4,6 +4,8 @@
 源：hf-mirror（HF_ENDPOINT 可覆盖）+ GitHub Release。
   - streaming-zipformer-zh-int8-2025-06-30  (~168MB, 仅 int8 权重+tokens)
   - kokoro-int8-multi-lang-v1_1             (~215MB 全量)
+  - vits-melo-tts-zh_en                      (~196MB，中文母语单音色)
+  - vits-icefall-zh-aishell3                 (~211MB，纯中文 174 音色，含规则库)
   - gtcrn_simple.onnx                        (0.54MB, GitHub Release)
   - silero_vad.onnx                          (2.3MB, GitHub Release)
 """
@@ -11,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tarfile
 import urllib.request
 from pathlib import Path
 
@@ -32,6 +35,21 @@ GH_FILES = {
     "vocos-22khz-univ.onnx": (
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos-22khz-univ.onnx",
         50_000_000,
+    ),
+}
+
+TTS_ARCHIVES = {
+    "vits-melo-tts-zh_en": (
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"
+        "vits-melo-tts-zh_en.tar.bz2",
+        ["model.onnx", "lexicon.txt", "tokens.txt", "date.fst", "number.fst",
+         "phone.fst", "LICENSE"],
+    ),
+    "vits-icefall-zh-aishell3": (
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"
+        "vits-icefall-zh-aishell3.tar.bz2",
+        ["model.onnx", "lexicon.txt", "tokens.txt", "date.fst", "number.fst",
+         "phone.fst"],
     ),
 }
 
@@ -91,6 +109,41 @@ def fetch_github() -> None:
             sys.exit(f"下载失败: {name}")
 
 
+def fetch_tts_archives() -> None:
+    """下载 sherpa-onnx 官方 TTS 包；限制归档只能写入各自模型目录。"""
+    for subdir, (url, required) in TTS_ARCHIVES.items():
+        dst = MODELS / subdir
+        marker = dst / ".download_complete"
+        if marker.is_file() and all((dst / name).is_file() for name in required):
+            print(f"[skip] {subdir} 已完成")
+            continue
+        archive = MODELS / f".{subdir}.tar.bz2.part"
+        print(f"[get ] {subdir} <- {url}")
+        for attempt in range(3):
+            try:
+                urllib.request.urlretrieve(url, archive)
+                with tarfile.open(archive, "r:bz2") as tf:
+                    members = tf.getmembers()
+                    for member in members:
+                        parts = Path(member.name).parts
+                        if not parts or parts[0] != subdir or member.issym() or member.islnk():
+                            raise IOError(f"unsafe archive member: {member.name!r}")
+                    tf.extractall(MODELS, members=members, filter="data")
+                missing = [name for name in required if not (dst / name).is_file()]
+                if missing:
+                    raise IOError(f"archive missing required files: {missing}")
+                marker.write_text("ok", encoding="utf-8")
+                archive.unlink(missing_ok=True)
+                total = sum(f.stat().st_size for f in dst.rglob("*") if f.is_file())
+                print(f"       ok {total / 1e6:.1f} MB")
+                break
+            except Exception as e:
+                print(f"       retry {attempt + 1}/3: {e}", file=sys.stderr)
+                archive.unlink(missing_ok=True)
+        else:
+            sys.exit(f"下载失败: {subdir}")
+
+
 def fetch_hf() -> None:
     from huggingface_hub import snapshot_download
     for repo_id, subdir, patterns in HF_REPOS:
@@ -133,6 +186,19 @@ def verify() -> None:
         "matcha-icefall-zh-baker/number.fst",
         "matcha-icefall-zh-baker/phone.fst",
         "vocos-22khz-univ.onnx",
+        "vits-melo-tts-zh_en/model.onnx",
+        "vits-melo-tts-zh_en/lexicon.txt",
+        "vits-melo-tts-zh_en/tokens.txt",
+        "vits-melo-tts-zh_en/date.fst",
+        "vits-melo-tts-zh_en/number.fst",
+        "vits-melo-tts-zh_en/phone.fst",
+        "vits-melo-tts-zh_en/LICENSE",
+        "vits-icefall-zh-aishell3/model.onnx",
+        "vits-icefall-zh-aishell3/lexicon.txt",
+        "vits-icefall-zh-aishell3/tokens.txt",
+        "vits-icefall-zh-aishell3/date.fst",
+        "vits-icefall-zh-aishell3/number.fst",
+        "vits-icefall-zh-aishell3/phone.fst",
         "sense-voice-zh-en-ja-ko-yue-2024-07-17/model.int8.onnx",
         "sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt",
         "punct-ct-transformer-zh-en-vocab272727-2024-04-12/model.onnx",
@@ -164,6 +230,7 @@ def fetch_gpu() -> None:
 if __name__ == "__main__":
     MODELS.mkdir(parents=True, exist_ok=True)
     fetch_github()
+    fetch_tts_archives()
     fetch_hf()
     verify()
     if "--gpu" in sys.argv:

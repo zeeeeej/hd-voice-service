@@ -31,9 +31,13 @@ vad:
   buffer_seconds: 60
 
 tts:
-  engine: kokoro
+  engine: melo
   num_threads: 2
-  default_speaker: 0
+  default_speakers:
+    melo: 0
+    aishell3: 0
+    matcha: 0
+    kokoro: 3
   default_speed: 1.0
   sample_rate_choices: [16000, 24000]
   model: kokoro-multi-lang-v1_1/model.onnx            # fp32（GPU 用）
@@ -52,6 +56,17 @@ tts:
   matcha_rule_fsts: matcha-icefall-zh-baker/date.fst,matcha-icefall-zh-baker/number.fst,matcha-icefall-zh-baker/phone.fst
   matcha_noise_scale: 0.667
   matcha_length_scale: 1.0
+  melo_model: vits-melo-tts-zh_en/model.onnx
+  melo_lexicon: vits-melo-tts-zh_en/lexicon.txt
+  melo_tokens: vits-melo-tts-zh_en/tokens.txt
+  melo_rule_fsts: vits-melo-tts-zh_en/date.fst,vits-melo-tts-zh_en/number.fst,vits-melo-tts-zh_en/phone.fst
+  aishell3_model: vits-icefall-zh-aishell3/model.onnx
+  aishell3_lexicon: vits-icefall-zh-aishell3/lexicon.txt
+  aishell3_tokens: vits-icefall-zh-aishell3/tokens.txt
+  aishell3_rule_fsts: vits-icefall-zh-aishell3/phone.fst,vits-icefall-zh-aishell3/date.fst,vits-icefall-zh-aishell3/number.fst
+  vits_noise_scale: 0.667
+  vits_noise_scale_w: 0.8
+  vits_length_scale: 1.0
 
 refine:
   enabled: true

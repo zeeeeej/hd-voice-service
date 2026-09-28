@@ -133,6 +133,40 @@ def test_ws_tts_incremental_feed(settings):
             ws.send_text(json.dumps({"type": "eof"}))
             drain(ws)
             assert [c_[0] for c_ in hub.tts.calls] == ["今天天气不错。", "走吧"]
+            assert all(c_[1] == 0 for c_ in hub.tts.calls)
+
+
+def test_ws_tts_defaults_to_engine_speaker(settings):
+    hub = FakeHub(settings, tts=FakeTts())
+    app = make_app_with_hub(settings, hub)
+    with TestClient(app) as c:
+        with c.websocket_connect("/v1/ws/tts?api_key=test-key") as ws:
+            ws.send_text(json.dumps({"type": "start"}))
+            ready = ws.receive_json()
+            assert ready["type"] == "ready" and ready["speaker"] == 0
+            ws.send_text(json.dumps({"type": "text", "text": "你好。"}))
+            ws.send_text(json.dumps({"type": "eof"}))
+            drain(ws)
+    assert hub.tts.calls[-1][1] == 0
+
+
+@pytest.mark.parametrize(("engine", "num_speakers", "expected"), [
+    ("melo", 1, 0),
+    ("matcha", 1, 0),
+    ("aishell3", 174, 0),
+    ("kokoro", 103, 3),
+])
+def test_engine_specific_default_speaker(settings, engine, num_speakers, expected):
+    settings.tts.engine = engine
+    hub = FakeHub(settings, tts=FakeTts(num_speakers=num_speakers))
+    assert hub.resolve_speaker(None) == expected
+
+
+def test_single_speaker_engine_rejects_nonzero_sid(settings):
+    settings.tts.engine = "melo"
+    hub = FakeHub(settings, tts=FakeTts(num_speakers=1))
+    with pytest.raises(ValueError, match="out of range"):
+        hub.resolve_speaker(1)
 
 
 def test_ws_tts_bad_start(settings):

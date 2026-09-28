@@ -152,7 +152,8 @@ async def rest_asr(request: Request, file: UploadFile = File(...), denoise: bool
 
 class TtsRequest(BaseModel):
     text: str = Field(min_length=1, max_length=5000)
-    speaker: int | str = 0
+    # 省略时由当前 TTS 引擎选择中文默认音色
+    speaker: int | str | None = None
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     sample_rate: int = 16000
 

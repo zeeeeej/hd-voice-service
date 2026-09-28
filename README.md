@@ -14,24 +14,28 @@ CPU 推理，Docker 部署；gpu-fp16 profile 文件已备好（`docker-compose.
 - `punctuate=true`（默认）：仅作用于**流式回退文本**（ct-transformer 补标点），不叠加在 SenseVoice 输出上
 - `itn=false`：显式拒绝（精修模型以 ITN-on 加载，全局开关在 `config.yaml refine.use_itn`）
 
-**TTS 双引擎**（`server/config.yaml` → `tts.engine`，重启即切换，接口/协议完全一致）：
+**TTS 四引擎**（`server/config.yaml` → `tts.engine` 或环境变量 `VOICE_TTS_ENGINE`，重启即切换）：
+
+中文支持规则：默认 TTS 面向中文环境，临时默认使用 Melo 中文音色。请求省略 `speaker` 时服务按当前引擎选择默认 sid。
 
 | 引擎 | 定位 | 本机 CPU 实测 | 许可 |
 |---|---|---|---|
-| `kokoro`（**默认**） | 正式路线：103 音色、质量优先；**生产走 GPU fp16** | RTF ≈0.8，WS 首块 ~1.4s（CPU 已知限制） | Apache-2.0，商用干净 |
-| `matcha`（可选） | 测试/调协议对比用：CPU 低延迟 | RTF ≈0.05，WS 首块 ~260ms | ⚠️ baker 数据**仅限非商用** |
+| `melo`（**临时默认**） | 中文母语单音色，44.1kHz，兼顾中文自然度和 CPU 推理 | RTF ≈1.46，WS 首块 0.88–1.97s | MIT，可商用 |
+| `aishell3` | 严格纯中文，174 音色；原生 8kHz | RTF ≈0.10，WS 首块 0.11–0.18s | Apache-2.0 |
+| `matcha` | 中文母语单女声，低延迟试听基线 | RTF ≈0.17，WS 首块 ~0.20s | ⚠️ Baker 数据仅限非商用 |
+| `kokoro` | 中英多音色历史方案；中文口音不满足当前需求 | RTF ≈0.8，WS 首块 ~1.4s | Apache-2.0 |
 
 > 详细对比、许可链查证与延迟预算见 [TTS引擎对比.md](./TTS引擎对比.md)。
 
 ## 快速开始（macOS / Linux，需 Docker）
 
 ```bash
-# 1. 下载模型（~920MB 含精修模型，走 hf-mirror + GitHub Release，幂等）
+# 1. 下载模型（约 1.4GB，含四套 TTS 与精修模型；走 hf-mirror + GitHub Release，幂等）
 ./scripts/download_models.sh
 # GPU 机器额外下载 fp16/fp32 权重（~1.7GB）：./scripts/download_models.sh --gpu
 
 # 2. 构建并启动（arm64 机器上即 arm64 镜像；x86 服务器上构建即得 amd64）
-cp .env.example .env          # 按需改 VOICE_API_KEY / VOICE_PORT
+cp .env.example .env          # 按需改 VOICE_API_KEY / VOICE_PORT / VOICE_TTS_ENGINE
 docker compose up --build -d
 curl -s http://localhost:8090/v1/health   # {"status":"ok","ready":true}
 
@@ -41,8 +45,8 @@ curl -s http://localhost:8090/v1/health   # {"status":"ok","ready":true}
 # 4. CLI 验证
 python3 -m venv .venv && .venv/bin/pip install -r cli/requirements.txt   # 首次
 .venv/bin/python cli/tts_cli.py --text "今天天气不错，我们一起去公园散步吧。" \
-    --out /tmp/tts.wav --play
-.venv/bin/python cli/asr_cli.py --wav /tmp/tts.wav
+    --out ~/Documents/tmp/tts.wav --play
+.venv/bin/python cli/asr_cli.py --wav ~/Documents/tmp/tts.wav
 .venv/bin/python cli/asr_cli.py --wav .assets/noisy.wav --denoise
 .venv/bin/python cli/smoke_test.py                       # 端到端自动断言，全绿退出码 0
 ```
@@ -54,7 +58,7 @@ python3 -m venv .venv && .venv/bin/pip install -r cli/requirements.txt   # 首�
 | `WS /v1/ws/asr` | 流式识别：二进制 pcm_s16le 分片上行；`ready/vad/partial/final/pong/error` 下行；`eof` 收尾 |
 | `WS /v1/ws/tts` | 流式合成：`start/text/flush/eof/cancel` 上行；二进制音频块 + `sentence_done/done` 下行 |
 | `POST /v1/asr` | 整文件识别（multipart `file`，可选 `?denoise=true`） |
-| `POST /v1/tts` | 整段合成（JSON `{text,speaker,speed,sample_rate}` → wav） |
+| `POST /v1/tts` | 整段合成（JSON `{text,speaker?,speed,sample_rate}` → wav） |
 | `POST /v1/vad` | 整文件 VAD 分段 |
 | `POST /v1/denoise` | 整文件降噪（调音/排障） |
 | `GET /v1/models` `GET /v1/health` `GET /metrics` | 模型信息 / 健康 / Prometheus |
@@ -100,7 +104,7 @@ GTCRN 链路已验证可用，真实板端麦克风噪声的 A/B 待板子接入
 ```bash
 # 单元测试（不依赖模型/网络，全部 Fake）
 python3 -m venv .venv-dev && .venv-dev/bin/pip install -r server/requirements.txt -r server/requirements-dev.txt
-cd server && ../.venv-dev/bin/python -m pytest tests/ -q     # 42 passed
+cd server && ../.venv-dev/bin/python -m pytest tests/ -q     # 61 passed
 
 # 开发迭代：docker-compose.override.yml 已挂载源码，改代码后
 docker compose restart voice      # 即可生效，无需重建镜像
@@ -108,7 +112,7 @@ docker compose restart voice      # 即可生效，无需重建镜像
 docker compose -f docker-compose.yml up -d --build
 
 # 配置：server/config.yaml（模型路径/VAD 参数/限流/默认值），
-# 环境变量覆盖：VOICE_CONFIG / VOICE_MODELS_DIR / VOICE_API_KEY / VOICE_PORT
+# 环境变量覆盖：VOICE_CONFIG / VOICE_MODELS_DIR / VOICE_API_KEY / VOICE_PORT / VOICE_TTS_ENGINE
 ```
 
 ## 目录

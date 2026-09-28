@@ -33,9 +33,13 @@ vad:
   buffer_seconds: 60
 
 tts:
-  engine: kokoro            # kokoro（默认：103 音色，商用许可干净，生产走 GPU fp16）| matcha（测试对比可选：CPU 首块~260ms，baker 数据仅限非商用）
+  engine: melo              # melo（临时默认中文）| aishell3（纯中文）| matcha（仅非商用试听）| kokoro
   num_threads: 4
-  default_speaker: 0
+  default_speakers:
+    melo: 0
+    aishell3: 0
+    matcha: 0
+    kokoro: 3
   default_speed: 1.0
   sample_rate_choices: [16000, 24000]
   # --- kokoro ---
@@ -56,6 +60,19 @@ tts:
   matcha_rule_fsts: matcha-icefall-zh-baker/date.fst,matcha-icefall-zh-baker/number.fst,matcha-icefall-zh-baker/phone.fst
   matcha_noise_scale: 0.667
   matcha_length_scale: 1.0
+  # --- MeloTTS 中文（单音色，44.1kHz，MIT，可商用）---
+  melo_model: vits-melo-tts-zh_en/model.onnx
+  melo_lexicon: vits-melo-tts-zh_en/lexicon.txt
+  melo_tokens: vits-melo-tts-zh_en/tokens.txt
+  melo_rule_fsts: vits-melo-tts-zh_en/date.fst,vits-melo-tts-zh_en/number.fst,vits-melo-tts-zh_en/phone.fst
+  # --- AISHELL3 VITS（纯中文 174 音色，原生 8kHz，Apache-2.0）---
+  aishell3_model: vits-icefall-zh-aishell3/model.onnx
+  aishell3_lexicon: vits-icefall-zh-aishell3/lexicon.txt
+  aishell3_tokens: vits-icefall-zh-aishell3/tokens.txt
+  aishell3_rule_fsts: vits-icefall-zh-aishell3/phone.fst,vits-icefall-zh-aishell3/date.fst,vits-icefall-zh-aishell3/number.fst
+  vits_noise_scale: 0.667
+  vits_noise_scale_w: 0.8
+  vits_length_scale: 1.0
 
 # v2 句末精修（SenseVoice int8 + ct-transformer 标点 + ITN）
 # 模型缺失或 enabled=false 时服务照常启动，final 自动回退流式文本（refined=false）

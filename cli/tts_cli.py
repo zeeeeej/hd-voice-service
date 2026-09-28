@@ -3,7 +3,7 @@
 
 用法:
   python cli/tts_cli.py --text "你好，世界。" --out /tmp/tts.wav [--play] \
-      [--speaker 0] [--speed 1.0] [--sample-rate 16000] [--url ws://localhost:8090/v1/ws/tts]
+      [--speaker SID] [--speed 1.0] [--sample-rate 16000] [--url ws://localhost:8090/v1/ws/tts]
 
 流式接收音频块写 WAV，打印首块延迟与每句 sentence_done。
 退出码: 0 成功, 2 协议/服务错误。
@@ -30,10 +30,13 @@ async def run(args) -> int:
     sample_rate = args.sample_rate
 
     async with websockets.connect(url, max_size=None, proxy=None) as ws:
-        await ws.send(json.dumps({
-            "type": "start", "speaker": args.speaker, "speed": args.speed,
+        start = {
+            "type": "start", "speed": args.speed,
             "format": "pcm_s16le", "sample_rate": sample_rate, "channels": 1,
-        }))
+        }
+        if args.speaker is not None:
+            start["speaker"] = args.speaker
+        await ws.send(json.dumps(start))
         ready = json.loads(await ws.recv())
         if ready.get("type") != "ready":
             print(f"错误: 期望 ready, 收到 {ready}", file=sys.stderr)
@@ -94,7 +97,7 @@ def main():
     ap.add_argument("--out", required=True, help="输出 WAV 路径")
     ap.add_argument("--url", default="ws://localhost:8090/v1/ws/tts")
     ap.add_argument("--api-key", default="devkey-local")
-    ap.add_argument("--speaker", default="0", help="v1 为整数 sid（kokoro 音色序号）")
+    ap.add_argument("--speaker", default=None, help="整数 sid；省略时使用当前引擎的中文默认音色")
     ap.add_argument("--speed", type=float, default=1.0)
     ap.add_argument("--sample-rate", type=int, default=16000, choices=[16000, 24000])
     ap.add_argument("--feed-chunk", type=int, default=8, help="模拟流式喂入的分批字符数")
@@ -102,8 +105,9 @@ def main():
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--play", action="store_true", help="完成后 afplay 播放")
     args = ap.parse_args()
-    sp = args.speaker
-    args.speaker = int(sp) if str(sp).lstrip("-").isdigit() else sp
+    if args.speaker is not None:
+        sp = args.speaker
+        args.speaker = int(sp) if str(sp).lstrip("-").isdigit() else sp
     sys.exit(asyncio.run(run(args)))
 
 

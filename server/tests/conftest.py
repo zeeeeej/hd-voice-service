@@ -225,7 +225,11 @@ class FakeHub(ModelHub):
         self._denoiser_factory = denoiser_factory or (lambda: FakeDenoiser())
         self.refine_recognizer = refine_recognizer
         self.punctuation = punctuation
-        self.info = {"provider": "cpu", "asr": {"language": "zh"}, "tts": {"type": "fake"}}
+        self.tts_engine = settings.tts.engine
+        self.info = {"provider": "cpu", "asr": {"language": "zh"},
+                     "tts": {"type": self.tts_engine,
+                             "num_speakers": self.tts.num_speakers,
+                             "default_speaker": self.default_speaker}}
         self.ready = True
 
     def create_denoiser(self):

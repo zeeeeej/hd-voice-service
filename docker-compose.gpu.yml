@@ -19,5 +19,6 @@ services:
       VOICE_API_KEY: ${VOICE_API_KEY:-devkey-local}
       VOICE_CONFIG: /opt/voice/config.yaml
       VOICE_MODELS_DIR: /opt/voice/models
+      VOICE_TTS_ENGINE: ${VOICE_TTS_ENGINE:-melo}
     mem_limit: 8g
     # 注意：冒烟阈值届时收紧回 800ms：cli/smoke_test.py --max-first-chunk-ms 800

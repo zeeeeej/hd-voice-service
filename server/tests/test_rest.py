@@ -35,14 +35,22 @@ def test_models_public(client):
     assert body["provider"] == "cpu" and body["ready"] is True
 
 
-def test_tts_wav(client):
+def test_tts_wav_defaults_to_chinese_speaker(client, app):
     r = client.post("/v1/tts", headers={"X-API-Key": "test-key"},
-                    json={"text": "你好。", "speaker": 0, "speed": 1.0, "sample_rate": 16000})
+                    json={"text": "你好。", "speed": 1.0, "sample_rate": 16000})
     assert r.status_code == 200
+    assert app.state.hub.tts.calls[-1][1] == 0
     assert r.content[:4] == b"RIFF"
     assert int(r.headers["X-Audio-Ms"]) > 100
     with wave.open(io.BytesIO(r.content)) as w:
         assert w.getframerate() == 16000 and w.getnchannels() == 1 and w.getsampwidth() == 2
+
+
+def test_tts_explicit_speaker_remains_compatible(client, app):
+    r = client.post("/v1/tts", headers={"X-API-Key": "test-key"},
+                    json={"text": "你好。", "speaker": 0, "speed": 1.0, "sample_rate": 16000})
+    assert r.status_code == 200
+    assert app.state.hub.tts.calls[-1][1] == 0
 
 
 def test_tts_unauthorized(client):

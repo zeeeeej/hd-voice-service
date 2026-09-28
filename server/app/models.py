@@ -25,6 +25,7 @@ class ModelHub:
         self.tts = None
         self.refine_recognizer = None   # SenseVoice 离线精修（可缺失 → None）
         self.punctuation = None         # ct-transformer 标点（可缺失 → None）
+        self.tts_engine: str | None = None
         self.info: dict = {}
         self.ready = False
         self.load_errors: list[str] = []
@@ -84,9 +85,11 @@ class ModelHub:
 
         t1 = time.monotonic()
         tt = self.s.tts
-        engine = (tt.engine or "kokoro").lower()
+        engine = (tt.engine or "melo").lower()
+        self.tts_engine = engine
         if engine == "matcha":
-            missing = [rel for rel in (tt.matcha_model, tt.matcha_tokens, tt.matcha_vocoder)
+            missing = [rel for rel in (tt.matcha_model, tt.matcha_lexicon,
+                                        tt.matcha_tokens, tt.matcha_vocoder)
                        if not self.s.model_path(rel).is_file()]
             if missing:
                 raise FileNotFoundError(f"TTS(matcha) model file missing: {missing}")
@@ -104,10 +107,34 @@ class ModelHub:
             model_cfg = sherpa_onnx.OfflineTtsModelConfig(
                 matcha=matcha, num_threads=tt.num_threads, provider=self.s.provider, debug=False)
             rule_fsts = ",".join(str(self.s.model_path(x)) for x in tt.matcha_rule_fsts.split(",") if x)
-        else:
-            missing = [rel for rel in (tt.model, tt.tokens) if not self.s.model_path(rel).is_file()]
+            selected_model = tt.matcha_model
+        elif engine in ("melo", "aishell3"):
+            model = getattr(tt, f"{engine}_model")
+            lexicon = getattr(tt, f"{engine}_lexicon")
+            tokens = getattr(tt, f"{engine}_tokens")
+            rule_fst_cfg = getattr(tt, f"{engine}_rule_fsts")
+            missing = [rel for rel in (model, lexicon, tokens)
+                       if not self.s.model_path(rel).is_file()]
             if missing:
-                raise FileNotFoundError(f"TTS model file missing: {missing}")
+                raise FileNotFoundError(f"TTS({engine}) model file missing: {missing}")
+            vits = sherpa_onnx.OfflineTtsVitsModelConfig(
+                model=str(self.s.model_path(model)),
+                lexicon=str(self.s.model_path(lexicon)),
+                tokens=str(self.s.model_path(tokens)),
+                noise_scale=tt.vits_noise_scale,
+                noise_scale_w=tt.vits_noise_scale_w,
+                length_scale=tt.vits_length_scale,
+            )
+            model_cfg = sherpa_onnx.OfflineTtsModelConfig(
+                vits=vits, num_threads=tt.num_threads, provider=self.s.provider, debug=False)
+            rule_fsts = ",".join(str(self.s.model_path(x)) for x in rule_fst_cfg.split(",") if x)
+            selected_model = model
+        elif engine == "kokoro":
+            required = [tt.model, tt.tokens, tt.voices]
+            required.extend(x for x in tt.lexicon.split(",") if x)
+            missing = [rel for rel in required if not self.s.model_path(rel).is_file()]
+            if missing:
+                raise FileNotFoundError(f"TTS(kokoro) model file missing: {missing}")
             kokoro = sherpa_onnx.OfflineTtsKokoroModelConfig(
                 model=str(self.s.model_path(tt.model)),
                 lexicon=",".join(str(self.s.model_path(x)) for x in tt.lexicon.split(",") if x),
@@ -119,6 +146,9 @@ class ModelHub:
             model_cfg = sherpa_onnx.OfflineTtsModelConfig(
                 kokoro=kokoro, num_threads=tt.num_threads, provider=self.s.provider, debug=False)
             rule_fsts = ",".join(str(self.s.model_path(x)) for x in tt.rule_fsts.split(",") if x)
+            selected_model = tt.model
+        else:
+            raise ValueError(f"unsupported tts.engine {tt.engine!r}; expected melo, aishell3, matcha, or kokoro")
         tts_cfg = sherpa_onnx.OfflineTtsConfig(
             model=model_cfg, rule_fsts=rule_fsts, max_num_sentences=1)
         if not tts_cfg.validate():
@@ -139,8 +169,9 @@ class ModelHub:
             "provider": self.s.provider,
             "sherpa_onnx": sherpa_onnx.__version__,
             "asr": {"type": "streaming-zipformer-transducer", "model": Path(a.encoder).parent.name, "language": a.language},
-            "tts": {"type": engine, "model": Path(tt.model if engine == "kokoro" else tt.matcha_model).parent.name,
-                    "sample_rate": self.tts.sample_rate, "num_speakers": self.tts.num_speakers},
+            "tts": {"type": engine, "model": Path(selected_model).parent.name,
+                    "sample_rate": self.tts.sample_rate, "num_speakers": self.tts.num_speakers,
+                    "default_speaker": self.default_speaker},
             "vad": {"type": "silero", "model": self.s.vad.model},
             "denoiser": {"type": "gtcrn", "model": self.s.denoiser.gtcrn_model},
             "refine": ({"type": "sense-voice", "model": Path(r.sense_voice_model).parent.name,
@@ -201,13 +232,23 @@ class ModelHub:
             self.load_errors.append(f"punct model missing ({punct_model.name})")
 
     # ---- speaker 解析 ----
-    def resolve_speaker(self, speaker, ) -> int:
-        """v1：仅支持整数 sid（kokoro voices.bin 顺序）。名称映射待官方表接入。"""
-        if speaker is None:
+    @property
+    def default_speaker(self) -> int:
+        engine = self.tts_engine or (self.s.tts.engine or "melo").lower()
+        defaults = self.s.tts.default_speakers or {}
+        if engine in defaults:
+            return int(defaults[engine])
+        if self.s.tts.default_speaker is not None:
             return int(self.s.tts.default_speaker)
-        if isinstance(speaker, bool):
+        return 0
+
+    def resolve_speaker(self, speaker) -> int:
+        """仅支持整数 sid；省略时使用当前引擎的默认中文音色。"""
+        if speaker is None:
+            sid = self.default_speaker
+        elif isinstance(speaker, bool):
             raise ValueError("bad speaker")
-        if isinstance(speaker, int):
+        elif isinstance(speaker, int):
             sid = speaker
         elif isinstance(speaker, str) and speaker.isdigit():
             sid = int(speaker)

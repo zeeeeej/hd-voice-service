@@ -1,17 +1,21 @@
-# TTS 引擎对比与选型决策：Kokoro vs Matcha
+# TTS 引擎对比与选型决策：Melo / AISHELL3 / Matcha / Kokoro
 
-> 记录日期：2026-09-25
+> 更新日期：2026-09-28
 > 环境：Apple Silicon (arm64) macOS / Docker VM 8C8G / CPU int8 推理
 > 全部速度数据为本机 sherpa-onnx 1.13.8 实测，非估算
 
-## 1. 决策（已定）
+## 1. 当前决策（待试听定稿）
 
 | 决策项 | 结论 |
 |---|---|
-| **默认/生产引擎** | **Kokoro**（`kokoro-int8-multi-lang-v1_1`，商用许可干净、103 音色、质量最好） |
-| 生产硬件路线 | **GPU**（正式应用走 CUDA EP + fp16 权重；CPU 上 kokoro 的固定开销在 GPU 上基本消失，首块预期 <300ms，到位后实测确认） |
-| Matcha 定位 | **可选项**：测试/调协议时对比使用（CPU 低延迟 20×），本机开发迭代可临时切换；**不得随商用产品交付**（训练数据非商用许可） |
-| 切换方式 | `server/config.yaml` → `tts.engine: kokoro \| matcha`，重启容器即生效，接口/协议完全一致 |
+| **临时默认引擎** | **Melo**（中文母语单音色、44.1kHz、MIT；试听后再定最终生产模型） |
+| 严格纯中文候选 | **AISHELL3 VITS**（174 音色、Apache-2.0；原生仅 8kHz） |
+| Matcha 定位 | 中文发音与延迟对比基线；**不得随商用产品交付**（训练数据非商用许可） |
+| Kokoro 定位 | 保留兼容和历史基线，不再作为当前中文默认候选 |
+| 切换方式 | `VOICE_TTS_ENGINE=melo\|aishell3\|matcha\|kokoro` 后重建容器；API/协议不变 |
+
+一键试听：`./scripts/compare_tts_models.sh`。脚本生成同文本 WAV 到
+`~/Documents/tmp/tts-compare/<时间戳>/`，并在结束后恢复 Melo。
 
 ## 2. 许可链分析（逐条查证）
 
@@ -39,7 +43,20 @@
 - 官方 FAQ：「Kokoro has been deployed in numerous projects and **commercial APIs**.
   We **welcome** deployment of the model in actual use.」无需申请。
 
-## 3. 全面对比（含本机实测）
+## 3. 本轮中文候选实测
+
+同一段中文、CPU、脚本自动重启后的首轮结果（输出分别重采样为 Melo/Matcha 24kHz、AISHELL3 16kHz）：
+
+| 引擎/音色 | 原生采样率 | WS 首块 | wall/audio |
+|---|---:|---:|---:|
+| Melo sid 0 | 44.1kHz | 878ms（冒烟长句热态 1972ms） | 1.458 |
+| AISHELL3 sid 0/10/33/99 | 8kHz | 139–182ms | 0.096–0.109 |
+| Matcha sid 0 | 22.05kHz | 200ms | 0.169 |
+
+所有样本均成功生成有效 PCM WAV；默认 Melo 端到端冒烟 13/13、TTS→ASR 中文回环重合率 1.000。
+语音自然度与音色偏好仍以 xpl 实听为准。
+
+## 3.1 历史对比（Kokoro / Matcha）
 
 | 维度 | kokoro-int8-multi-lang-v1_1 | matcha-icefall-zh-baker + vocos |
 |---|---|---|
@@ -70,13 +87,12 @@ kokoro 在 CPU 上慢的根因是推理管线固定开销 + 回调粒度粗，�
 | TTS 首块 | ~1.4s | **<0.3s** | ~0.26s |
 | 合计 | ≈2.5s（顶格无余量） | **≈1.4s** | ≈1.4s |
 
-## 5. 若生产被迫纯 CPU 且商用的备选（当前不启用）
+## 5. 中文候选说明
 
-1. **`vits-melo-tts-zh_en`（MIT 许可）**：MyShell MeloTTS 的 sherpa-onnx 官方发布版，
-   中英混读、单女声、VITS 架构 CPU 上通常 RTF 0.1–0.3。引擎开关已配置化，
-   接入约半天（下载 163MB + `models.py` 加 vits 分支）。
-2. 向标贝科技购买 CSMSC 商业授权，继续用 matcha。
-3. 硬扛 kokoro CPU 首块 1.4s（延迟预算顶格，不推荐）。
+1. **Melo**：中文母语单音色，支持中英混读，44.1kHz，MIT；当前临时默认。
+2. **AISHELL3**：严格纯中文、174 音色、Apache-2.0；8kHz 原生带宽是主要限制。
+3. **Matcha**：中文母语单女声且延迟低，但 Baker/CSMSC 数据仅限非商业使用。
+4. **Kokoro**：许可宽松、音色多，但当前实听存在明显非母语中文口音。
 
 ## 5.1 本机 Apple GPU（CoreML EP）实测：无收益
 
@@ -96,6 +112,6 @@ CPU。结论：本机维持 CPU；若未来重试 Apple GPU，前提换 fp32/fp1
 
 - [ ] GPU 机器到位后：接 `gpu-fp16` profile（CUDA EP + kokoro fp32/fp16 权重），实测首块延迟；
       冒烟测试 kokoro 阈值届时从 CPU 哨兵值 3000ms 收紧回 800ms（`cli/smoke_test.py` 注释已标）
-- [ ] （可选）接入 melo 第三引擎，覆盖纯 CPU 商用兜底场景
-- [ ] 测试对比流程：同一文本分别以两引擎合成（改 `tts.engine` 重启即可），
-      用 `cli/tts_cli.py --play` 盲听 + `cli/smoke_test.py` 看延迟/回环指标
+- [x] 接入 Melo 与 AISHELL3 VITS，引擎默认 speaker 按模型配置
+- [x] 一键生成 Melo / AISHELL3 / Matcha 同文本试听样本
+- [ ] xpl 试听后确定最终生产默认模型与 speaker

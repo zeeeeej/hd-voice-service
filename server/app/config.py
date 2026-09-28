@@ -49,7 +49,7 @@ class VadCfg:
 
 @dataclass
 class TtsCfg:
-    engine: str = "kokoro"  # kokoro | matcha
+    engine: str = "melo"  # melo | aishell3 | matcha | kokoro
     # kokoro（多音色，质量优先）
     model: str = ""
     lexicon: str = ""
@@ -70,9 +70,30 @@ class TtsCfg:
                              "matcha-icefall-zh-baker/phone.fst")
     matcha_noise_scale: float = 0.667
     matcha_length_scale: float = 1.0
+    # vits-melo-tts-zh_en（中文母语单音色，MIT，可商用）
+    melo_model: str = "vits-melo-tts-zh_en/model.onnx"
+    melo_lexicon: str = "vits-melo-tts-zh_en/lexicon.txt"
+    melo_tokens: str = "vits-melo-tts-zh_en/tokens.txt"
+    melo_rule_fsts: str = ("vits-melo-tts-zh_en/date.fst,"
+                           "vits-melo-tts-zh_en/number.fst,"
+                           "vits-melo-tts-zh_en/phone.fst")
+    # vits-icefall-zh-aishell3（纯中文 174 音色，Apache-2.0，原生 8kHz）
+    aishell3_model: str = "vits-icefall-zh-aishell3/model.onnx"
+    aishell3_lexicon: str = "vits-icefall-zh-aishell3/lexicon.txt"
+    aishell3_tokens: str = "vits-icefall-zh-aishell3/tokens.txt"
+    aishell3_rule_fsts: str = ("vits-icefall-zh-aishell3/phone.fst,"
+                               "vits-icefall-zh-aishell3/date.fst,"
+                               "vits-icefall-zh-aishell3/number.fst")
+    vits_noise_scale: float = 0.667
+    vits_noise_scale_w: float = 0.8
+    vits_length_scale: float = 1.0
     # 通用
     num_threads: int = 2
-    default_speaker: int = 0
+    default_speakers: dict[str, int] = field(default_factory=lambda: {
+        "melo": 0, "aishell3": 0, "matcha": 0, "kokoro": 3,
+    })
+    # 兼容旧配置；仅当 default_speakers 没有当前引擎时使用
+    default_speaker: int | None = None
     default_speed: float = 1.0
     sample_rate_choices: list = field(default_factory=lambda: [16000, 24000])
 
@@ -143,6 +164,8 @@ def load_settings() -> Settings:
     s.denoiser = _fill(DenoiserCfg, raw.get("denoiser"))
     s.vad = _fill(VadCfg, raw.get("vad"))
     s.tts = _fill(TtsCfg, raw.get("tts"))
+    if engine := os.environ.get("VOICE_TTS_ENGINE"):
+        s.tts.engine = engine
     s.refine = _fill(RefineCfg, raw.get("refine"))
     s.provider = raw.get("provider", "cpu")
     s.limits = _fill(LimitsCfg, raw.get("limits"))

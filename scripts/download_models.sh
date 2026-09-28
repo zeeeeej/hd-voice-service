@@ -7,4 +7,4 @@ if [ ! -x .venv/bin/python ]; then
 fi
 .venv/bin/pip install -q --upgrade pip >/dev/null
 .venv/bin/pip install -q "huggingface_hub>=0.25" -r cli/requirements.txt
-exec .venv/bin/python scripts/download_models.py
+exec .venv/bin/python scripts/download_models.py "$@"
