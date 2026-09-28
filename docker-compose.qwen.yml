@@ -1,0 +1,30 @@
+services:
+  qwen-tts:
+    build: ./qwen_service
+    image: hd-qwen3-tts:cpu
+    container_name: hd-qwen3-tts
+    volumes:
+      - ./models/Qwen3-TTS-12Hz-0.6B-CustomVoice:/models/Qwen3-TTS-12Hz-0.6B-CustomVoice:ro
+    environment:
+      QWEN_MODEL_PATH: /models/Qwen3-TTS-12Hz-0.6B-CustomVoice
+      QWEN_DEVICE: cpu
+      QWEN_LANGUAGE: Chinese
+    mem_limit: 10g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8091/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 15
+      start_period: 600s
+    restart: unless-stopped
+
+  voice:
+    depends_on:
+      qwen-tts:
+        condition: service_healthy
+    environment:
+      VOICE_TTS_ENGINE: qwen3
+      VOICE_QWEN_TTS_URL: http://qwen-tts:8091
+      VOICE_QWEN_TTS_TIMEOUT: 300
+      VOICE_TTS_SESSIONS: 1
+    mem_limit: 4g

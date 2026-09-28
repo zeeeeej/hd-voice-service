@@ -195,9 +195,11 @@ class FakeGeneratedAudio:
 class FakeTts:
     """每句产出 0.3s 正弦音频；有 callback 时分 3 块回调。"""
 
-    def __init__(self, sample_rate=24000, num_speakers=4):
+    def __init__(self, sample_rate=24000, num_speakers=4, speaker_names=None):
         self.sample_rate = sample_rate
         self.num_speakers = num_speakers
+        if speaker_names is not None:
+            self.speaker_names = tuple(speaker_names)
         self.calls: list[tuple] = []
 
     def generate(self, text, sid=0, speed=1.0, callback=None):
@@ -229,7 +231,8 @@ class FakeHub(ModelHub):
         self.info = {"provider": "cpu", "asr": {"language": "zh"},
                      "tts": {"type": self.tts_engine,
                              "num_speakers": self.tts.num_speakers,
-                             "default_speaker": self.default_speaker}}
+                             "default_speaker": self.default_speaker,
+                             "speaker_names": list(getattr(self.tts, "speaker_names", ()))}}
         self.ready = True
 
     def create_denoiser(self):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""下载模型到 ./models/（幂等；--gpu 追加 fp16/fp32 权重）。
+"""下载模型到 ./models/（幂等；--gpu/--qwen 追加可选权重）。
 
 源：hf-mirror（HF_ENDPOINT 可覆盖）+ GitHub Release。
   - streaming-zipformer-zh-int8-2025-06-30  (~168MB, 仅 int8 权重+tokens)
@@ -8,6 +8,7 @@
   - vits-icefall-zh-aishell3                 (~211MB，纯中文 174 音色，含规则库)
   - gtcrn_simple.onnx                        (0.54MB, GitHub Release)
   - silero_vad.onnx                          (2.3MB, GitHub Release)
+  - Qwen3-TTS-12Hz-0.6B-CustomVoice          (~2.5GB, --qwen)
 """
 from __future__ import annotations
 
@@ -84,6 +85,9 @@ HF_REPOS = [
      "punct-ct-transformer-zh-en-vocab272727-2024-04-12",
      ["model.onnx", "tokens.json"]),              # 294MB，标点恢复
 ]
+
+QWEN_REPO = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
+QWEN_DIR = "Qwen3-TTS-12Hz-0.6B-CustomVoice"
 
 
 def fetch_github() -> None:
@@ -227,6 +231,38 @@ def fetch_gpu() -> None:
         marker.write_text("ok")
 
 
+def fetch_qwen() -> None:
+    """下载 Qwen3-TTS 0.6B CustomVoice 全量权重及语音 tokenizer。"""
+    from huggingface_hub import snapshot_download
+
+    dst = MODELS / QWEN_DIR
+    marker = dst / ".download_complete"
+    required = ("config.json", "model.safetensors")
+    if marker.is_file() and all((dst / name).is_file() for name in required):
+        print(f"[skip] {QWEN_DIR} 已完成")
+        return
+    print(f"[qwen] {QWEN_REPO} -> {dst} (endpoint={os.environ['HF_ENDPOINT']})")
+    snapshot_download(repo_id=QWEN_REPO, local_dir=str(dst), max_workers=4)
+    missing = [name for name in required if not (dst / name).is_file()]
+    if missing:
+        sys.exit(f"Qwen3-TTS 模型缺失: {missing}")
+    marker.write_text("ok", encoding="utf-8")
+    total = sum(f.stat().st_size for f in dst.rglob("*") if f.is_file())
+    print(f"       ok {total / 1e9:.2f} GB")
+
+
+def verify_qwen() -> None:
+    required = [
+        f"{QWEN_DIR}/config.json",
+        f"{QWEN_DIR}/model.safetensors",
+        f"{QWEN_DIR}/.download_complete",
+    ]
+    missing = [rel for rel in required if not (MODELS / rel).is_file()]
+    if missing:
+        sys.exit(f"Qwen3-TTS 模型缺失: {missing}")
+    print(f"[ok  ] Qwen3-TTS 模型就绪: {MODELS / QWEN_DIR}")
+
+
 if __name__ == "__main__":
     MODELS.mkdir(parents=True, exist_ok=True)
     fetch_github()
@@ -236,3 +272,6 @@ if __name__ == "__main__":
     if "--gpu" in sys.argv:
         fetch_gpu()
         print("[ok  ] GPU 权重就绪")
+    if "--qwen" in sys.argv:
+        fetch_qwen()
+        verify_qwen()

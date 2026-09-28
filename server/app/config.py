@@ -49,7 +49,7 @@ class VadCfg:
 
 @dataclass
 class TtsCfg:
-    engine: str = "melo"  # melo | aishell3 | matcha | kokoro
+    engine: str = "melo"  # melo | aishell3 | matcha | kokoro | qwen3
     # kokoro（多音色，质量优先）
     model: str = ""
     lexicon: str = ""
@@ -87,10 +87,20 @@ class TtsCfg:
     vits_noise_scale: float = 0.667
     vits_noise_scale_w: float = 0.8
     vits_length_scale: float = 1.0
+    # Qwen3-TTS（独立推理服务；0.6B CustomVoice 固定 9 个预置音色）
+    qwen_url: str = "http://qwen-tts:8091"
+    qwen_model: str = "Qwen3-TTS-12Hz-0.6B-CustomVoice"
+    qwen_timeout: float = 300.0
+    qwen_max_chars: int = 300
+    qwen_speakers: list[str] = field(default_factory=lambda: [
+        "Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric",
+        "Ryan", "Aiden", "Ono_Anna", "Sohee",
+    ])
     # 通用
     num_threads: int = 2
-    default_speakers: dict[str, int] = field(default_factory=lambda: {
+    default_speakers: dict[str, int | str] = field(default_factory=lambda: {
         "melo": 0, "aishell3": 0, "matcha": 0, "kokoro": 3,
+        "qwen3": "Vivian",
     })
     # 兼容旧配置；仅当 default_speakers 没有当前引擎时使用
     default_speaker: int | None = None
@@ -166,9 +176,15 @@ def load_settings() -> Settings:
     s.tts = _fill(TtsCfg, raw.get("tts"))
     if engine := os.environ.get("VOICE_TTS_ENGINE"):
         s.tts.engine = engine
+    if qwen_url := os.environ.get("VOICE_QWEN_TTS_URL"):
+        s.tts.qwen_url = qwen_url
+    if qwen_timeout := os.environ.get("VOICE_QWEN_TTS_TIMEOUT"):
+        s.tts.qwen_timeout = float(qwen_timeout)
     s.refine = _fill(RefineCfg, raw.get("refine"))
     s.provider = raw.get("provider", "cpu")
     s.limits = _fill(LimitsCfg, raw.get("limits"))
+    if tts_sessions := os.environ.get("VOICE_TTS_SESSIONS"):
+        s.limits.tts_sessions = int(tts_sessions)
     s.defaults = _fill(DefaultsCfg, raw.get("defaults"))
     if port := os.environ.get("VOICE_PORT"):
         raw.setdefault("server", {})["port"] = int(port)

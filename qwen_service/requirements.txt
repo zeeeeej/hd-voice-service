@@ -1,0 +1,10 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+qwen-tts==0.1.1
+torch==2.11.0+cpu
+torchaudio==2.11.0+cpu
+fastapi>=0.115,<1.0
+starlette>=0.40,<1.0
+uvicorn[standard]>=0.30
+numpy>=1.26,<3
+librosa>=0.10.2,<1.0

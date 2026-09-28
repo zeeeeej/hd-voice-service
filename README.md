@@ -14,18 +14,20 @@ CPU 推理，Docker 部署；gpu-fp16 profile 文件已备好（`docker-compose.
 - `punctuate=true`（默认）：仅作用于**流式回退文本**（ct-transformer 补标点），不叠加在 SenseVoice 输出上
 - `itn=false`：显式拒绝（精修模型以 ITN-on 加载，全局开关在 `config.yaml refine.use_itn`）
 
-**TTS 四引擎**（`server/config.yaml` → `tts.engine` 或环境变量 `VOICE_TTS_ENGINE`，重启即切换）：
+**TTS 五引擎**（`server/config.yaml` → `tts.engine` 或环境变量 `VOICE_TTS_ENGINE`，重启即切换）：
 
 中文支持规则：默认 TTS 面向中文环境，临时默认使用 Melo 中文音色。请求省略 `speaker` 时服务按当前引擎选择默认 sid。
 
 | 引擎 | 定位 | 本机 CPU 实测 | 许可 |
 |---|---|---|---|
+| `qwen3`（**推荐试听**） | 0.6B CustomVoice，9 音色（5 个中文原生），默认 `Vivian` | RTF ≈9.8–10.6，首块 13–27s | Apache-2.0 |
 | `melo`（**临时默认**） | 中文母语单音色，44.1kHz，兼顾中文自然度和 CPU 推理 | RTF ≈1.46，WS 首块 0.88–1.97s | MIT，可商用 |
 | `aishell3` | 严格纯中文，174 音色；原生 8kHz | RTF ≈0.10，WS 首块 0.11–0.18s | Apache-2.0 |
 | `matcha` | 中文母语单女声，低延迟试听基线 | RTF ≈0.17，WS 首块 ~0.20s | ⚠️ Baker 数据仅限非商用 |
 | `kokoro` | 中英多音色历史方案；中文口音不满足当前需求 | RTF ≈0.8，WS 首块 ~1.4s | Apache-2.0 |
 
-> 详细对比、许可链查证与延迟预算见 [TTS引擎对比.md](./TTS引擎对比.md)。
+> 轻量模型对比见 [TTS引擎对比.md](./TTS引擎对比.md)；Qwen 选型、音色和实现边界见
+> [Qwen3-TTS对比.md](./Qwen3-TTS对比.md)。
 
 ## 快速开始（macOS / Linux，需 Docker）
 
@@ -33,11 +35,15 @@ CPU 推理，Docker 部署；gpu-fp16 profile 文件已备好（`docker-compose.
 # 1. 下载模型（约 1.4GB，含四套 TTS 与精修模型；走 hf-mirror + GitHub Release，幂等）
 ./scripts/download_models.sh
 # GPU 机器额外下载 fp16/fp32 权重（~1.7GB）：./scripts/download_models.sh --gpu
+# Qwen3-TTS 额外下载（~2.5GB）：./scripts/download_models.sh --qwen
 
 # 2. 构建并启动（arm64 机器上即 arm64 镜像；x86 服务器上构建即得 amd64）
 cp .env.example .env          # 按需改 VOICE_API_KEY / VOICE_PORT / VOICE_TTS_ENGINE
 docker compose up --build -d
 curl -s http://localhost:8090/v1/health   # {"status":"ok","ready":true}
+
+# Qwen3-TTS（先把 Docker Desktop 内存调到至少 16GB）
+docker compose -f docker-compose.yml -f docker-compose.qwen.yml up --build -d
 
 # 3. 生成测试音频（macOS say + ffmpeg）
 ./scripts/gen_test_audio.sh   # → .assets/clean.wav .assets/noisy.wav
@@ -104,7 +110,7 @@ GTCRN 链路已验证可用，真实板端麦克风噪声的 A/B 待板子接入
 ```bash
 # 单元测试（不依赖模型/网络，全部 Fake）
 python3 -m venv .venv-dev && .venv-dev/bin/pip install -r server/requirements.txt -r server/requirements-dev.txt
-cd server && ../.venv-dev/bin/python -m pytest tests/ -q     # 61 passed
+cd server && ../.venv-dev/bin/python -m pytest tests/ -q     # 68 passed
 
 # 开发迭代：docker-compose.override.yml 已挂载源码，改代码后
 docker compose restart voice      # 即可生效，无需重建镜像
@@ -112,13 +118,15 @@ docker compose restart voice      # 即可生效，无需重建镜像
 docker compose -f docker-compose.yml up -d --build
 
 # 配置：server/config.yaml（模型路径/VAD 参数/限流/默认值），
-# 环境变量覆盖：VOICE_CONFIG / VOICE_MODELS_DIR / VOICE_API_KEY / VOICE_PORT / VOICE_TTS_ENGINE
+# 环境变量覆盖：VOICE_CONFIG / VOICE_MODELS_DIR / VOICE_API_KEY / VOICE_PORT / VOICE_TTS_ENGINE /
+# VOICE_QWEN_TTS_URL / VOICE_QWEN_TTS_TIMEOUT / VOICE_TTS_SESSIONS
 ```
 
 ## 目录
 
 ```
 server/   FastAPI 应用 + Dockerfile + config.yaml + 单元测试
+qwen_service/  Qwen3-TTS PyTorch 私有推理服务
 cli/      测试客户端（asr_cli / tts_cli / smoke_test）
 scripts/  模型下载、测试音频生成
 models/   模型文件（git 忽略，由 download_models.sh 填充）
@@ -130,5 +138,8 @@ models/   模型文件（git 忽略，由 download_models.sh 填充）
 - [x] v1 精简核心：GTCRN 降噪 + VAD + 流式 ASR + 流式 TTS + CLI 验证（本机 Docker CPU）
 - [x] v2：SenseVoice 句末精修 + 标点/ITN（双通道 final）+ ct-transformer 流式标点
 - [x] v2（预备）：gpu-fp16 profile 文件（compose/config/requirements/下载 --gpu，**待 GPU 实机验证**）
+- [x] Qwen3-TTS 0.6B CustomVoice sidecar、9 音色与中文默认 `Vivian`（16GB Docker CPU 实机验证通过）
+- [ ] REST ASR 容错：SenseVoice 精修返回空文本时自动回退流式识别结果，并返回 `refined=false`
+- [ ] REST ASR 分段：VAD 语音段加入 0.5s pre-roll（起点时间正确截断到 0），避免低能量音头被切掉
 - [ ] v2：Opus 编解码（4G 链路，需镜像加装 ffmpeg）
 - [ ] v3：GPU 实机部署 + kokoro fp16 首块延迟复测（届时冒烟阈值收紧回 800ms）

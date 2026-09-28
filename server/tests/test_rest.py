@@ -53,6 +53,20 @@ def test_tts_explicit_speaker_remains_compatible(client, app):
     assert app.state.hub.tts.calls[-1][1] == 0
 
 
+def test_tts_qwen_named_speaker(settings):
+    names = ["Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric",
+             "Ryan", "Aiden", "Ono_Anna", "Sohee"]
+    settings.tts.engine = "qwen3"
+    hub = FakeHub(settings, tts=FakeTts(num_speakers=9, speaker_names=names))
+    from fastapi.testclient import TestClient
+    with TestClient(make_app_with_hub(settings, hub)) as qwen_client:
+        response = qwen_client.post(
+            "/v1/tts", headers={"X-API-Key": "test-key"},
+            json={"text": "你好。", "speaker": "Serena", "sample_rate": 24000})
+    assert response.status_code == 200
+    assert hub.tts.calls[-1][1] == "Serena"
+
+
 def test_tts_unauthorized(client):
     r = client.post("/v1/tts", json={"text": "hi"})
     assert r.status_code == 401

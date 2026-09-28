@@ -169,6 +169,19 @@ def test_single_speaker_engine_rejects_nonzero_sid(settings):
         hub.resolve_speaker(1)
 
 
+def test_qwen_speaker_name_and_numeric_alias(settings):
+    names = ["Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric",
+             "Ryan", "Aiden", "Ono_Anna", "Sohee"]
+    settings.tts.engine = "qwen3"
+    hub = FakeHub(settings, tts=FakeTts(num_speakers=9, speaker_names=names))
+    assert hub.resolve_speaker(None) == "Vivian"
+    assert hub.resolve_speaker("serena") == "Serena"
+    assert hub.resolve_speaker(2) == "Uncle_Fu"
+    assert hub.resolve_speaker("8") == "Sohee"
+    with pytest.raises(ValueError, match="unknown Qwen3-TTS speaker"):
+        hub.resolve_speaker("not-a-voice")
+
+
 def test_ws_tts_bad_start(settings):
     hub = FakeHub(settings, tts=FakeTts())
     app = make_app_with_hub(settings, hub)

@@ -137,7 +137,11 @@ async def main(args) -> int:
     # - matcha@CPU：硬阈值 800ms（实测 ~260ms）
     # - kokoro@CPU：仅回归哨兵 3000ms（实测冷机 ~1.4s、热机降频 ~2.4s，波动大；
     #   生产目标 ≤800ms 须在 GPU 上达成，见 TTS引擎对比.md §4）
-    engine_thresholds = {"matcha": 800, "aishell3": 1500, "melo": 3000, "kokoro": 3000}
+    engine_thresholds = {
+        "matcha": 800, "aishell3": 1500, "melo": 3000, "kokoro": 3000,
+        # CPU 上 Qwen 首句包含完整自回归生成；这是回归超时，不是实时性能目标。
+        "qwen3": 300000,
+    }
     max_first_chunk_ms = args.max_first_chunk_ms or engine_thresholds.get(tts_engine, 3000)
     print(f"       tts.engine={tts_engine} → 首块延迟阈值 {max_first_chunk_ms:.0f}ms"
           + ("（CPU 参考值，生产 GPU 目标 ≤800ms）" if tts_engine == "kokoro" else ""))
@@ -145,7 +149,8 @@ async def main(args) -> int:
     # 2. REST TTS 合成已知文本
     payload = json.dumps({"text": SMOKE_TEXT, "speed": 1.0, "sample_rate": 16000}).encode()
     st, hdrs, body = http_json(f"{base}/v1/tts", key, data=payload,
-                               headers={"Content-Type": "application/json"}, timeout=120)
+                               headers={"Content-Type": "application/json"},
+                               timeout=360 if tts_engine == "qwen3" else 120)
     audio_ms = int(hdrs.get("X-Audio-Ms") or 0)
     ok = check("REST /v1/tts 200 + wav", st == 200 and body[:4] == b"RIFF" and audio_ms > 500,
                f"audio_ms={audio_ms}")
@@ -243,6 +248,6 @@ if __name__ == "__main__":
     ap.add_argument("--clean-txt", default=".assets/clean.txt")
     ap.add_argument("--out-dir", default=".assets")
     ap.add_argument("--max-first-chunk-ms", type=float, default=None,
-                    help="覆盖默认阈值（matcha=800ms, aishell3=1500ms, melo/kokoro=3000ms）")
+                    help="覆盖默认阈值（Qwen3 CPU 默认 300000ms，其余见脚本）")
     args = ap.parse_args()
     sys.exit(asyncio.run(main(args)))

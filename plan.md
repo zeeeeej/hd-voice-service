@@ -1,9 +1,10 @@
 # hd-voice-service v1：本机 Docker CPU 流式语音服务器（精简核心 + GTCRN 降噪）
 
-> 状态：**v2 精修通道已完成并验证**（2026-09-28，冒烟 13/13、单测 61/61；v1: 8 路并发通过）
+> 状态：**v2 精修通道与 Qwen3-TTS 适配已完成并验证**（2026-09-28，冒烟 13/13、
+> 单测 68/68、Qwen 中文 ASR 回环 1.000；v1: 8 路并发通过）
 >
 > 实施记录（与原计划的差异/新决策）：
-> 1. **TTS 四引擎配置化（`config.yaml tts.engine` / `VOICE_TTS_ENGINE`）**。曾一度默认 matcha（kokoro int8 在 CPU 上
+> 1. **TTS 五引擎配置化（`config.yaml tts.engine` / `VOICE_TTS_ENGINE`）**。曾一度默认 matcha（kokoro int8 在 CPU 上
 >    每次 generate 固定开销 ~700ms、RTF≈0.8、首块 ~1.4s；matcha 实测 RTF≈0.05、首块 ~260ms）。
 >    **2026-09-28 新决策（xpl）**：Kokoro 中文口音不满足要求；接入 Melo、AISHELL3、Matcha 三种中文候选，
 >    临时默认 Melo，生成同文本样本试听后再定最终生产模型。Matcha 仅限非商业试听；AISHELL3 原生 8kHz。
@@ -36,6 +37,10 @@
 >     SenseVoice GPU 需用 fp32 权重（938MB，int8 与 CUDA EP 不兼容）。
 > 15. 本机 Apple GPU（CoreML EP）实测无收益（kokoro 合成 1885→1814ms，ASR 加载反而更慢），
 >     详见 TTS引擎对比.md §5.1。
+> 16. 新增 `qwen3`：`Qwen3-TTS-12Hz-0.6B-CustomVoice` 运行在独立 CPU sidecar，默认中文音色
+>     `Vivian`，支持 9 个名称或数字别名。Compose overlay、`--qwen` 下载、试听脚本和 100ms
+>     句后分块已完成；这不是模型级真流式。16GB Docker CPU 实测 RTF≈9.8–10.6、首块 13–27s，
+>     端到端冒烟 13/13、中文回环 1.000。详见 [Qwen3-TTS对比.md](./Qwen3-TTS对比.md)。
 > 设计依据：《自建 Linux 流式语音服务器.md》（API 契约 §3.4、流水线 §3.3、模型清单 §3.2）
 > 已核实：sherpa-onnx 1.13.8 Python API 实测存在
 > `OnlineSpeechDenoiser`(GTCRN 流式降噪) / `VoiceActivityDetector` / `OnlineRecognizer.from_transducer` /
@@ -55,6 +60,7 @@ amd64），模型经下载脚本落宿主机 `./models/` 后 volume 挂载。提
 ```
 server/            FastAPI 应用（app/main.py、config.py、models.py、pipeline/{asr_session,text_chunker,audio}.py、
                    api/{ws_asr,ws_tts,rest,auth}.py）、config.yaml、requirements.txt、Dockerfile、tests/
+qwen_service/      Qwen3-TTS PyTorch 私有推理 sidecar（CPU float32 + SDPA）
 cli/               asr_cli.py、tts_cli.py、smoke_test.py、requirements.txt（websockets、numpy）
 scripts/           download_models.sh(.py)、gen_test_audio.sh
 docker-compose.yml、.env.example、README.md
@@ -70,7 +76,8 @@ models/            （下载产物，git ignore）
   （仅 int8 encoder/decoder/joiner + tokens.txt，owner 依次尝试 csukuangfj → k2-fsa）与
   `kokoro-int8-multi-lang-v1_1`（全量 215MB）；Melo/AISHELL3 及小模型走 GitHub Release。
 - **模型加载**（`models.py`，lifespan 单例）：GTCRN 降噪器与 Silero VAD 为**每会话实例**（有状态、创建廉价），
-  `OnlineRecognizer` 与当前选中的单个 `OfflineTts` 全局共享权重；默认 Melo sid `0`，切引擎需重启。
+  `OnlineRecognizer` 与当前选中的 TTS 全局共享权重；基础 Compose 默认 Melo sid `0`，Qwen overlay
+  默认 `Vivian`，切引擎需重启。
   VAD 参数 threshold=0.5 / min_silence=0.5 / min_speech=0.25 / max_speech=20 / window 512@16k。
   任一加载失败 → 启动即失败，health 报 not ready。全部路径/参数走 `config.yaml`+env，禁止硬编码。
 - **WS ASR `/v1/ws/asr`**：严格按 md §3.4 契约实现（ready/vad/partial/final/pong/error 消息、二进制分片上行、
@@ -93,11 +100,11 @@ models/            （下载产物，git ignore）
 - **CLI（宿主机 `.venv`）**：
   - `cli/asr_cli.py --wav f.wav [--denoise] [--fast] [--api-key K] [--url ws://localhost:8090/v1/ws/asr]`：
     按实时节奏（或 --fast 全速）推流，partial 同行刷新、final 逐行打印，结束输出 timings/RTF 汇总。
-  - `cli/tts_cli.py --text "…" [--speaker SID] [--speed 1.0] --out out.wav [--play]`：走 WS 流式收块写 wav，
+  - `cli/tts_cli.py --text "…" [--speaker SID_OR_NAME] [--speed 1.0] --out out.wav [--play]`：走 WS 流式收块写 wav，
     `--play` 用 macOS `afplay`；打印首块延迟。
   - `cli/smoke_test.py`：自动断言链——health ready → REST TTS 合成已知文本 → WS ASR 识别该音频 →
     字符重合率 ≥90% → denoise on/off 各跑一遍含噪样本 → TTS 首块延迟按引擎断言（Melo/Kokoro
-    3000ms 回归阈值、AISHELL3 1500ms、Matcha 800ms）→
+    3000ms 回归阈值、AISHELL3 1500ms、Matcha 800ms、Qwen3 CPU 300000ms）→
     全过退出码 0。
 - **测试音频**（`scripts/gen_test_audio.sh`，macOS `say` + ffmpeg）：生成 `clean.wav`（附期望文本）、
   `noisy.wav`（ffmpeg `anoisesrc` 混噪 ~5dB SNR），均 16k 单声道 s16le。
@@ -114,6 +121,19 @@ models/            （下载产物，git ignore）
   （临时默认 Melo 在 CPU 上使用 3000ms 回归阈值）；ASR partial
   持续输出、final 带 start/end/timings；`docker compose restart` 后自动恢复 ready。
 
+## 后续任务：REST ASR 低质量录音容错
+
+来源：`hd-record-audio/log/test-off.wav` 排查。该录音存在明显直流偏置且前半段有效语音能量低，
+Silero VAD 到约 3.85s 才触发；REST 默认 `VAD → SenseVoice` 路径中 SenseVoice 返回空文本后，
+当前实现直接丢弃该段。相同文件使用 `refine=false` 或 WS 路径可以得到识别文本。
+
+- [ ] **精修为空自动回退**：REST 保留每段流式 recognizer 文本；SenseVoice 返回空文本或抛异常时，
+      回退该文本，响应标记 `refined=false`，不得返回静默空结果。
+- [ ] **REST VAD 增加 0.5s pre-roll**：传给 SenseVoice 的 PCM 包含触发点前最多 0.5s 原始音频；
+      对外 `start` 应按实际扩展后的起点计算并截断到 0，不能产生负时间。
+- [ ] **回归测试**：覆盖低能量音头、首段起点不足 0.5s、SenseVoice 空文本及异常四种情况；确认
+      正常录音结果不回退，且 REST 与 WS 的精修/回退语义一致。
+
 ## Assumptions
 
 - v1 精简核心：无 SenseVoice 精修/标点/ITN（final `refined=false`），相关 WS 参数显式拒绝而非静默忽略；
@@ -125,4 +145,5 @@ models/            （下载产物，git ignore）
   A/B 数据由 smoke_test 输出后再定默认。
 - 本机部署不含 nginx，鉴权仅 `X-API-Key` 中间件（WS 允许 `?api_key=` 查询参数兜底），端口只应绑定内网/本机。
 - docker 命令沙箱受限时逐个请求批准；模型源以 hf-mirror + GitHub Release 为准（huggingface.co 被墙）。
-- 中文支持规则：临时默认 Melo sid `0`；AISHELL3/Matcha 默认 sid `0`，Kokoro 默认中文 sid `3`。
+- 中文支持规则：基础 Compose 默认 Melo sid `0`；Qwen overlay 默认中文 `Vivian`；AISHELL3/Matcha
+  默认 sid `0`，Kokoro 默认中文 sid `3`。

@@ -1,18 +1,20 @@
-# TTS 引擎对比与选型决策：Melo / AISHELL3 / Matcha / Kokoro
+# TTS 轻量引擎对比与选型决策：Melo / AISHELL3 / Matcha / Kokoro
 
 > 更新日期：2026-09-28
 > 环境：Apple Silicon (arm64) macOS / Docker VM 8C8G / CPU int8 推理
 > 全部速度数据为本机 sherpa-onnx 1.13.8 实测，非估算
+> Qwen3-TTS 属于不同资源级别，单独见 [Qwen3-TTS对比.md](./Qwen3-TTS对比.md)。
 
 ## 1. 当前决策（待试听定稿）
 
 | 决策项 | 结论 |
 |---|---|
-| **临时默认引擎** | **Melo**（中文母语单音色、44.1kHz、MIT；试听后再定最终生产模型） |
+| **基础 Compose 默认** | **Melo**（中文母语单音色、44.1kHz、MIT） |
+| 高质量中文候选 | **Qwen3-TTS 0.6B CustomVoice**（独立 overlay，默认 `Vivian`；见 Qwen 对比文档） |
 | 严格纯中文候选 | **AISHELL3 VITS**（174 音色、Apache-2.0；原生仅 8kHz） |
 | Matcha 定位 | 中文发音与延迟对比基线；**不得随商用产品交付**（训练数据非商用许可） |
 | Kokoro 定位 | 保留兼容和历史基线，不再作为当前中文默认候选 |
-| 切换方式 | `VOICE_TTS_ENGINE=melo\|aishell3\|matcha\|kokoro` 后重建容器；API/协议不变 |
+| 切换方式 | 四个轻量引擎使用 `VOICE_TTS_ENGINE`；Qwen 使用 `docker-compose.qwen.yml`；API/协议不变 |
 
 一键试听：`./scripts/compare_tts_models.sh`。脚本生成同文本 WAV 到
 `~/Documents/tmp/tts-compare/<时间戳>/`，并在结束后恢复 Melo。

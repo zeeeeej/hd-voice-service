@@ -14,6 +14,7 @@ from pathlib import Path
 import sherpa_onnx
 
 from .config import Settings
+from .qwen_tts import QwenRemoteTts
 
 log = logging.getLogger(__name__)
 
@@ -87,7 +88,14 @@ class ModelHub:
         tt = self.s.tts
         engine = (tt.engine or "melo").lower()
         self.tts_engine = engine
-        if engine == "matcha":
+        if engine == "qwen3":
+            self.tts = QwenRemoteTts(
+                base_url=tt.qwen_url,
+                timeout=tt.qwen_timeout,
+                max_chars=tt.qwen_max_chars,
+            )
+            selected_model = tt.qwen_model
+        elif engine == "matcha":
             missing = [rel for rel in (tt.matcha_model, tt.matcha_lexicon,
                                         tt.matcha_tokens, tt.matcha_vocoder)
                        if not self.s.model_path(rel).is_file()]
@@ -148,12 +156,15 @@ class ModelHub:
             rule_fsts = ",".join(str(self.s.model_path(x)) for x in tt.rule_fsts.split(",") if x)
             selected_model = tt.model
         else:
-            raise ValueError(f"unsupported tts.engine {tt.engine!r}; expected melo, aishell3, matcha, or kokoro")
-        tts_cfg = sherpa_onnx.OfflineTtsConfig(
-            model=model_cfg, rule_fsts=rule_fsts, max_num_sentences=1)
-        if not tts_cfg.validate():
-            raise RuntimeError("invalid TTS config")
-        self.tts = sherpa_onnx.OfflineTts(config=tts_cfg)
+            raise ValueError(
+                f"unsupported tts.engine {tt.engine!r}; "
+                "expected melo, aishell3, matcha, kokoro, or qwen3")
+        if engine != "qwen3":
+            tts_cfg = sherpa_onnx.OfflineTtsConfig(
+                model=model_cfg, rule_fsts=rule_fsts, max_num_sentences=1)
+            if not tts_cfg.validate():
+                raise RuntimeError("invalid TTS config")
+            self.tts = sherpa_onnx.OfflineTts(config=tts_cfg)
         log.info("TTS(%s) loaded in %.1fs, sample_rate=%d, speakers=%d",
                  engine, time.monotonic() - t1, self.tts.sample_rate, self.tts.num_speakers)
 
@@ -169,9 +180,13 @@ class ModelHub:
             "provider": self.s.provider,
             "sherpa_onnx": sherpa_onnx.__version__,
             "asr": {"type": "streaming-zipformer-transducer", "model": Path(a.encoder).parent.name, "language": a.language},
-            "tts": {"type": engine, "model": Path(selected_model).parent.name,
+            "tts": {"type": engine,
+                    "model": (selected_model if engine == "qwen3" else Path(selected_model).parent.name),
                     "sample_rate": self.tts.sample_rate, "num_speakers": self.tts.num_speakers,
-                    "default_speaker": self.default_speaker},
+                    "default_speaker": self.default_speaker,
+                    "speaker_names": list(getattr(self.tts, "speaker_names", ())),
+                    "runtime": (getattr(self.tts, "metadata", None)
+                                if engine == "qwen3" else None)},
             "vad": {"type": "silero", "model": self.s.vad.model},
             "denoiser": {"type": "gtcrn", "model": self.s.denoiser.gtcrn_model},
             "refine": ({"type": "sense-voice", "model": Path(r.sense_voice_model).parent.name,
@@ -233,17 +248,37 @@ class ModelHub:
 
     # ---- speaker 解析 ----
     @property
-    def default_speaker(self) -> int:
+    def default_speaker(self) -> int | str:
         engine = self.tts_engine or (self.s.tts.engine or "melo").lower()
         defaults = self.s.tts.default_speakers or {}
         if engine in defaults:
-            return int(defaults[engine])
+            return self._resolve_qwen_speaker(defaults[engine]) if engine == "qwen3" else int(defaults[engine])
         if self.s.tts.default_speaker is not None:
-            return int(self.s.tts.default_speaker)
-        return 0
+            fallback = self.s.tts.default_speaker
+            return self._resolve_qwen_speaker(fallback) if engine == "qwen3" else int(fallback)
+        return "Vivian" if engine == "qwen3" else 0
 
-    def resolve_speaker(self, speaker) -> int:
-        """仅支持整数 sid；省略时使用当前引擎的默认中文音色。"""
+    def _resolve_qwen_speaker(self, speaker) -> str:
+        names = tuple(getattr(self.tts, "speaker_names", ()) or self.s.tts.qwen_speakers)
+        if isinstance(speaker, bool):
+            raise ValueError("bad speaker")
+        if isinstance(speaker, int) or (isinstance(speaker, str) and speaker.isdigit()):
+            sid = int(speaker)
+            if not (0 <= sid < len(names)):
+                raise ValueError(f"speaker sid {sid} out of range 0..{len(names) - 1}")
+            return names[sid]
+        if isinstance(speaker, str):
+            by_name = {name.casefold(): name for name in names}
+            if speaker.casefold() in by_name:
+                return by_name[speaker.casefold()]
+        raise ValueError(f"unknown Qwen3-TTS speaker {speaker!r}; expected one of {', '.join(names)}")
+
+    def resolve_speaker(self, speaker) -> int | str:
+        """解析 sid；Qwen3-TTS 额外支持音色名（不区分大小写）。"""
+        if (self.tts_engine or "").lower() == "qwen3":
+            if speaker is None:
+                return self.default_speaker
+            return self._resolve_qwen_speaker(speaker)
         if speaker is None:
             sid = self.default_speaker
         elif isinstance(speaker, bool):

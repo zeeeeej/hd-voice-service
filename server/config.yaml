@@ -33,13 +33,14 @@ vad:
   buffer_seconds: 60
 
 tts:
-  engine: melo              # melo（临时默认中文）| aishell3（纯中文）| matcha（仅非商用试听）| kokoro
+  engine: melo              # melo | aishell3 | matcha | kokoro | qwen3（推荐中文，需 Qwen sidecar）
   num_threads: 4
   default_speakers:
     melo: 0
     aishell3: 0
     matcha: 0
     kokoro: 3
+    qwen3: Vivian
   default_speed: 1.0
   sample_rate_choices: [16000, 24000]
   # --- kokoro ---
@@ -73,6 +74,12 @@ tts:
   vits_noise_scale: 0.667
   vits_noise_scale_w: 0.8
   vits_length_scale: 1.0
+  # --- Qwen3-TTS 0.6B CustomVoice（独立容器，中文默认 Vivian）---
+  qwen_url: http://qwen-tts:8091
+  qwen_model: Qwen3-TTS-12Hz-0.6B-CustomVoice
+  qwen_timeout: 300
+  qwen_max_chars: 300
+  qwen_speakers: [Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan, Aiden, Ono_Anna, Sohee]
 
 # v2 句末精修（SenseVoice int8 + ct-transformer 标点 + ITN）
 # 模型缺失或 enabled=false 时服务照常启动，final 自动回退流式文本（refined=false）

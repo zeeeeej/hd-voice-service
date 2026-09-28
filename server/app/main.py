@@ -39,7 +39,12 @@ def create_app(settings=None, hub=None) -> FastAPI:
         else:
             app.state.hub = hub
         log.info("service ready")
-        yield
+        try:
+            yield
+        finally:
+            close_tts = getattr(app.state.hub.tts, "close", None)
+            if callable(close_tts):
+                close_tts()
 
     app = FastAPI(title="hd-voice-service", version="0.1.0", lifespan=lifespan)
 

@@ -3,7 +3,7 @@
 
 用法:
   python cli/tts_cli.py --text "你好，世界。" --out /tmp/tts.wav [--play] \
-      [--speaker SID] [--speed 1.0] [--sample-rate 16000] [--url ws://localhost:8090/v1/ws/tts]
+      [--speaker SID_OR_NAME] [--speed 1.0] [--sample-rate 16000] [--url ws://localhost:8090/v1/ws/tts]
 
 流式接收音频块写 WAV，打印首块延迟与每句 sentence_done。
 退出码: 0 成功, 2 协议/服务错误。
@@ -97,7 +97,8 @@ def main():
     ap.add_argument("--out", required=True, help="输出 WAV 路径")
     ap.add_argument("--url", default="ws://localhost:8090/v1/ws/tts")
     ap.add_argument("--api-key", default="devkey-local")
-    ap.add_argument("--speaker", default=None, help="整数 sid；省略时使用当前引擎的中文默认音色")
+    ap.add_argument("--speaker", default=None,
+                    help="整数 sid 或音色名（Qwen3-TTS 如 Vivian）；省略时使用中文默认音色")
     ap.add_argument("--speed", type=float, default=1.0)
     ap.add_argument("--sample-rate", type=int, default=16000, choices=[16000, 24000])
     ap.add_argument("--feed-chunk", type=int, default=8, help="模拟流式喂入的分批字符数")
