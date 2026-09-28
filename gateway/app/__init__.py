@@ -1,0 +1,1 @@
+"""Voice command gateway."""

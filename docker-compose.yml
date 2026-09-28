@@ -21,3 +21,27 @@ services:
       retries: 8
       start_period: 90s
     restart: unless-stopped
+
+  gateway:
+    build: ./gateway
+    image: hd-voice-gateway:cpu
+    container_name: hd-voice-gateway
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    environment:
+      GATEWAY_API_KEY: ${GATEWAY_API_KEY:-devkey-gateway}
+      VOICE_API_KEY: ${VOICE_API_KEY:-devkey-local}
+      VOICE_BASE_URL: http://voice:8090
+      GATEWAY_MAX_UPLOAD_MB: ${GATEWAY_MAX_UPLOAD_MB:-25}
+      GATEWAY_CONNECT_TIMEOUT: ${GATEWAY_CONNECT_TIMEOUT:-10}
+      GATEWAY_REQUEST_TIMEOUT: ${GATEWAY_REQUEST_TIMEOUT:-180}
+    depends_on:
+      voice:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/v1/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped

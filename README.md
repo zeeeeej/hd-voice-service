@@ -35,9 +35,10 @@ CPU 推理，Docker 部署；gpu-fp16 profile 文件已备好（`docker-compose.
 # GPU 机器额外下载 fp16/fp32 权重（~1.7GB）：./scripts/download_models.sh --gpu
 
 # 2. 构建并启动（arm64 机器上即 arm64 镜像；x86 服务器上构建即得 amd64）
-cp .env.example .env          # 按需改 VOICE_API_KEY / VOICE_PORT / VOICE_TTS_ENGINE
+cp .env.example .env          # 按需改 VOICE_API_KEY / GATEWAY_API_KEY / 端口 / TTS 引擎
 docker compose up --build -d
 curl -s http://localhost:8090/v1/health   # {"status":"ok","ready":true}
+curl -s http://localhost:8080/v1/health   # 网关及 Voice API 均就绪
 
 # 3. 生成测试音频（macOS say + ffmpeg）
 ./scripts/gen_test_audio.sh   # → .assets/clean.wav .assets/noisy.wav
@@ -55,6 +56,7 @@ python3 -m venv .venv && .venv/bin/pip install -r cli/requirements.txt   # 首�
 
 | 接口 | 说明 |
 |---|---|
+| `POST :8080/v1/voice-command` | 板端业务网关：上传录音 → ASR → “我收到了命令：…” → Melo TTS WAV |
 | `WS /v1/ws/asr` | 流式识别：二进制 pcm_s16le 分片上行；`ready/vad/partial/final/pong/error` 下行；`eof` 收尾 |
 | `WS /v1/ws/tts` | 流式合成：`start/text/flush/eof/cancel` 上行；二进制音频块 + `sentence_done/done` 下行 |
 | `POST /v1/asr` | 整文件识别（multipart `file`，可选 `?denoise=true`） |
@@ -65,6 +67,15 @@ python3 -m venv .venv && .venv/bin/pip install -r cli/requirements.txt   # 首�
 
 鉴权：`X-API-Key` 头（WS 亦支持 `?api_key=`）；health/models/metrics 免鉴权。
 错误约定：400（请求/音频问题）、401、429（过载，WS 用 1013 关闭）、500；透传 `X-Request-Id`。
+
+板端业务网关使用独立的 `GATEWAY_API_KEY`，内部 Voice API 使用 `VOICE_API_KEY`：
+
+```bash
+curl -sS http://localhost:8080/v1/voice-command \
+  -H "X-API-Key: devkey-gateway" \
+  -F "file=@.assets/clean.wav;type=audio/wav" \
+  -o ~/Documents/tmp/reply.wav
+```
 
 WS ASR 示例（wscat 风格伪码）：
 
@@ -108,6 +119,7 @@ cd server && ../.venv-dev/bin/python -m pytest tests/ -q     # 61 passed
 
 # 开发迭代：docker-compose.override.yml 已挂载源码，改代码后
 docker compose restart voice      # 即可生效，无需重建镜像
+docker compose restart gateway    # 修改网关代码后重启
 # 生产部署（自包含镜像）：
 docker compose -f docker-compose.yml up -d --build
 
@@ -118,7 +130,8 @@ docker compose -f docker-compose.yml up -d --build
 ## 目录
 
 ```
-server/   FastAPI 应用 + Dockerfile + config.yaml + 单元测试
+server/   Voice API + Dockerfile + config.yaml + 单元测试
+gateway/  板端业务网关 + Dockerfile + 单元测试
 cli/      测试客户端（asr_cli / tts_cli / smoke_test）
 scripts/  模型下载、测试音频生成
 models/   模型文件（git 忽略，由 download_models.sh 填充）

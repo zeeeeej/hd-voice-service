@@ -6,3 +6,6 @@ services:
       - ./models:/opt/voice/models:ro
       - ./server/config.yaml:/opt/voice/config.yaml:ro
       - ./server/app:/opt/voice/app:ro
+  gateway:
+    volumes:
+      - ./gateway/app:/opt/gateway/app:ro
